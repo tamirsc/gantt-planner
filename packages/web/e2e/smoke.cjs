@@ -116,7 +116,8 @@ async function shot(page, name) {
   await owner.goto(`${BASE}/members`);
   await owner.locator("table.list tbody tr").nth(2).waitFor();
   assert.equal(await owner.locator("table.list tbody tr select").count(), 3);
-  assert.ok((await owner.locator("table.list.audit tbody tr").count()) > 5);
+  // the audit log loads separately; wait for at least six entries instead of counting immediately
+  await owner.locator("table.list.audit tbody tr").nth(5).waitFor();
   await shot(owner, "06-org-admin");
 
   // --- sign out redirects to login; the project is no longer reachable
