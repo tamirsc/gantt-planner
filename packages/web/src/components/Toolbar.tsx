@@ -3,10 +3,12 @@ import { readMspdi, writeMspdi } from "@gantt-planner/mspdi";
 import { t } from "../i18n";
 import { fmtDate } from "../lib/format";
 import type { Zoom } from "../lib/timeline";
+import { navigate, pathFor } from "../router";
 import { useStore } from "../store";
-import { sampleProject } from "../sample";
+import { api } from "../api";
+import { UserMenu } from "./UserMenu";
 
-export function Toolbar() {
+export function Toolbar({ readOnly, onMembers }: { readOnly: boolean; onMembers: () => void }) {
   const s = useStore();
   const lang = s.prefs.lang;
   const fileRef = useRef<HTMLInputElement>(null);
@@ -15,7 +17,7 @@ export function Toolbar() {
     try {
       const xml = await file.text();
       const doc = readMspdi(xml);
-      s.setProject(doc.project, doc.name || file.name.replace(/\.xml$/i, ""));
+      s.setProject(doc.project, doc.name || s.projectName);
       if (doc.warnings.length > 0) s.setToast(doc.warnings.map((w) => w.message).join("\n"));
     } catch (e) {
       s.setToast(`${t(lang, "importError")} ${(e as Error).message}`);
@@ -32,27 +34,65 @@ export function Toolbar() {
     URL.revokeObjectURL(a.href);
   };
 
+  const onDelete = async () => {
+    if (!s.projectId || !confirm(t(lang, "confirmDelete"))) return;
+    try {
+      await api.deleteProject(s.projectId);
+      navigate(pathFor.projects(), true);
+    } catch (e) {
+      s.setToast((e as Error).message);
+    }
+  };
+
   const sel = s.selected;
   const warnings = s.result.warnings.length;
+  const saveLabel = { saved: t(lang, "saved"), dirty: t(lang, "unsaved"), saving: t(lang, "saving"), error: t(lang, "saveError"), conflict: t(lang, "conflict") }[s.saveState];
 
   return (
     <header className="toolbar">
       <div className="brand">
-        <strong>{t(lang, "appTitle")}</strong>
+        <button onClick={() => navigate(pathFor.projects())} title={t(lang, "back")}>
+          ←
+        </button>
         <input
           className="project-name"
           dir="auto"
-          placeholder={t(lang, "sample")}
+          placeholder={t(lang, "newProjectName")}
           value={s.projectName}
-          onChange={(e) => useStore.setState({ projectName: e.target.value })}
+          disabled={readOnly}
+          onChange={(e) => s.setProjectName(e.target.value)}
         />
+        <span className={`save-state ${s.saveState}`} title={saveLabel}>
+          {readOnly ? t(lang, "readOnly") : saveLabel}
+        </span>
       </div>
 
+      {!readOnly && (
+        <div className="group">
+          <button onClick={() => s.addTask(sel[sel.length - 1] ?? null)}>{t(lang, "addTask")}</button>
+          <button disabled={sel.length === 0} onClick={() => s.deleteTasks(sel)}>
+            {t(lang, "deleteTask")}
+          </button>
+          <button disabled={sel.length === 0} onClick={() => s.indent(sel)}>
+            {t(lang, "indent")}
+          </button>
+          <button disabled={sel.length === 0} onClick={() => s.outdent(sel)}>
+            {t(lang, "outdent")}
+          </button>
+          <button disabled={sel.length < 2} onClick={() => s.linkTasks(sel)}>
+            {t(lang, "link")}
+          </button>
+          <button disabled={s.past.length === 0} onClick={s.undo} title="Ctrl+Z">
+            {t(lang, "undo")}
+          </button>
+          <button disabled={s.future.length === 0} onClick={s.redo} title="Ctrl+Y">
+            {t(lang, "redo")}
+          </button>
+        </div>
+      )}
+
       <div className="group">
-        <button onClick={() => s.setProject(sampleProject(), "")} title={t(lang, "newProject")}>
-          {t(lang, "newProject")}
-        </button>
-        <button onClick={() => fileRef.current?.click()}>{t(lang, "importXml")}</button>
+        {!readOnly && <button onClick={() => fileRef.current?.click()}>{t(lang, "importXml")}</button>}
         <input
           ref={fileRef}
           type="file"
@@ -64,29 +104,9 @@ export function Toolbar() {
             e.target.value = "";
           }}
         />
-        <button onClick={onExport}>{t(lang, "exportXml")}</button>
-      </div>
-
-      <div className="group">
-        <button onClick={() => s.addTask(sel[sel.length - 1] ?? null)}>{t(lang, "addTask")}</button>
-        <button disabled={sel.length === 0} onClick={() => s.deleteTasks(sel)}>
-          {t(lang, "deleteTask")}
-        </button>
-        <button disabled={sel.length === 0} onClick={() => s.indent(sel)}>
-          {t(lang, "indent")}
-        </button>
-        <button disabled={sel.length === 0} onClick={() => s.outdent(sel)}>
-          {t(lang, "outdent")}
-        </button>
-        <button disabled={sel.length < 2} onClick={() => s.linkTasks(sel)}>
-          {t(lang, "link")}
-        </button>
-        <button disabled={s.past.length === 0} onClick={s.undo} title="Ctrl+Z">
-          {t(lang, "undo")}
-        </button>
-        <button disabled={s.future.length === 0} onClick={s.redo} title="Ctrl+Y">
-          {t(lang, "redo")}
-        </button>
+        {s.permissions.export && <button onClick={onExport}>{t(lang, "exportXml")}</button>}
+        <button onClick={onMembers}>{t(lang, "members")}</button>
+        {s.permissions.delete && <button onClick={() => void onDelete()}>{t(lang, "deleteProject")}</button>}
       </div>
 
       <div className="group">
@@ -103,7 +123,6 @@ export function Toolbar() {
           <input type="checkbox" checked={s.prefs.timelineRtl} onChange={(e) => s.setPrefs({ timelineRtl: e.target.checked })} />
           RTL ⟵
         </label>
-        <button onClick={() => s.setPrefs({ lang: lang === "he" ? "en" : "he" })}>{t(lang, "language")}</button>
       </div>
 
       <div className="status" dir="auto">
@@ -125,6 +144,7 @@ export function Toolbar() {
           </span>
         )}
       </div>
+      <UserMenu />
     </header>
   );
 }

@@ -10,5 +10,5 @@ export default defineConfig({
       "@gantt-planner/mspdi": fileURLToPath(new URL("../mspdi/src/index.ts", import.meta.url)),
     },
   },
-  server: { port: 5173 },
+  server: { port: 5173, proxy: { "/api": "http://localhost:3000" } },
 });

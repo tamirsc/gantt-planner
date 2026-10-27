@@ -7,12 +7,28 @@ import {
   type ScheduleResult,
   type TaskInput,
 } from "@gantt-planner/engine";
-import type { Lang } from "./i18n";
+import { ApiError, api, type Me, type MemberRow, type ProjectDetail } from "./api";
+import { t, type Lang } from "./i18n";
 import type { Zoom } from "./lib/timeline";
-import { sampleProject } from "./sample";
 
-const STORAGE_KEY = "gantt-planner.project.v1";
 const PREFS_KEY = "gantt-planner.prefs.v1";
+
+/** Application-level task fields the engine ignores. */
+export interface AppTaskExtras {
+  assigneeId?: string;
+  notes?: string;
+}
+export type AppTask = TaskInput & AppTaskExtras;
+
+export type SaveState = "saved" | "dirty" | "saving" | "error" | "conflict";
+
+export interface Permissions {
+  edit: boolean;
+  updateOwnTasks: boolean;
+  manageMembers: boolean;
+  export: boolean;
+  delete: boolean;
+}
 
 interface Prefs {
   lang: Lang;
@@ -22,6 +38,18 @@ interface Prefs {
 }
 
 export interface AppState {
+  /** undefined = not checked yet, null = signed out */
+  session: Me | null | undefined;
+  currentOrgId: string | null;
+
+  /** Loaded project (server-backed). */
+  projectId: string | null;
+  version: number;
+  permissions: Permissions;
+  members: MemberRow[];
+  saveState: SaveState;
+  loadError: string | null;
+
   project: ProjectInput;
   projectName: string;
   result: ScheduleResult;
@@ -33,9 +61,22 @@ export interface AppState {
   prefs: Prefs;
   toast: string | null;
 
-  // mutations (all go through commit → history + reschedule)
+  // session
+  bootstrap(): Promise<void>;
+  refreshSession(): Promise<void>;
+  signOut(): Promise<void>;
+  setCurrentOrg(id: string): void;
+
+  // project lifecycle
+  openProject(id: string): Promise<void>;
+  closeProject(): void;
+  saveNow(): Promise<void>;
+  setProjectName(name: string): void;
+  refreshMembers(): Promise<void>;
+
+  // mutations (all go through commit → history + reschedule + autosave)
   setProject(project: ProjectInput, name?: string): void;
-  updateTask(id: string, patch: Partial<TaskInput>): void;
+  updateTask(id: string, patch: Partial<AppTask>): void;
   addTask(afterId: string | null): string;
   deleteTasks(ids: string[]): void;
   indent(ids: string[]): void;
@@ -53,19 +94,6 @@ export interface AppState {
   setToast(msg: string | null): void;
 }
 
-function loadProject(): { project: ProjectInput; name: string } {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as { project: ProjectInput; name: string };
-      if (parsed.project?.tasks) return parsed;
-    }
-  } catch {
-    /* ignore */
-  }
-  return { project: sampleProject(), name: "" };
-}
-
 function loadPrefs(): Prefs {
   const defaults: Prefs = { lang: "he", timelineRtl: false, zoom: "week", highlightCritical: true };
   try {
@@ -76,25 +104,25 @@ function loadPrefs(): Prefs {
   }
 }
 
-function persist(project: ProjectInput, name: string) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ project, name }));
-  } catch {
-    /* ignore */
-  }
-}
-
 let seq = Date.now();
 export function newId(): string {
   return `t${(seq++).toString(36)}`;
 }
 
-const initial = loadProject();
-
 export const useStore = create<AppState>((set, get) => {
   /** Apply a project change: validate by scheduling, push history, persist. Returns false on scheduling error. */
-  const commit = (next: ProjectInput, opts: { name?: string; history?: boolean } = {}): boolean => {
-    const { project, past, projectName } = get();
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleSave = () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => void get().saveNow(), 800);
+  };
+
+  const commit = (next: ProjectInput, opts: { name?: string; history?: boolean; remote?: boolean } = {}): boolean => {
+    const { project, past, projectName, permissions } = get();
+    if (!opts.remote && !permissions.edit && !permissions.updateOwnTasks) {
+      set({ toast: permissions.updateOwnTasks ? t(get().prefs.lang, "progressOnly") : t(get().prefs.lang, "readOnly") });
+      return false;
+    }
     let result: ScheduleResult;
     try {
       result = schedule(next);
@@ -114,10 +142,11 @@ export const useStore = create<AppState>((set, get) => {
       projectName: name,
       result,
       error: null,
-      past: opts.history === false ? past : [...past.slice(-99), project],
-      future: opts.history === false ? get().future : [],
+      past: opts.remote || opts.history === false ? past : [...past.slice(-99), project],
+      future: opts.remote || opts.history === false ? get().future : [],
+      saveState: opts.remote ? "saved" : "dirty",
     });
-    persist(next, name);
+    if (!opts.remote) scheduleSave();
     return true;
   };
 
@@ -147,10 +176,26 @@ export const useStore = create<AppState>((set, get) => {
     return out;
   };
 
+  const applyDetail = (p: ProjectDetail) => {
+    set({ projectId: p.id, version: p.version, permissions: p.permissions, projectName: p.name });
+    commit(p.data, { name: p.name, remote: true });
+  };
+
+  const empty: ProjectInput = { start: Date.now(), tasks: [], dependencies: [] };
+  const noPermissions: Permissions = { edit: false, updateOwnTasks: false, manageMembers: false, export: false, delete: false };
+
   return {
-    project: initial.project,
-    projectName: initial.name,
-    result: schedule(initial.project),
+    session: undefined,
+    currentOrgId: null,
+    projectId: null,
+    version: 0,
+    permissions: noPermissions,
+    members: [],
+    saveState: "saved",
+    loadError: null,
+    project: empty,
+    projectName: "",
+    result: schedule(empty),
     error: null,
     past: [],
     future: [],
@@ -159,8 +204,85 @@ export const useStore = create<AppState>((set, get) => {
     prefs: loadPrefs(),
     toast: null,
 
+    async bootstrap() {
+      await get().refreshSession();
+    },
+
+    async refreshSession() {
+      try {
+        const me = await api.me();
+        const current = get().currentOrgId;
+        const orgId = current && me.orgs.some((o) => o.id === current) ? current : (me.orgs[0]?.id ?? null);
+        set({ session: me, currentOrgId: orgId });
+        if (me.user.locale === "he" || me.user.locale === "en") get().setPrefs({ lang: me.user.locale });
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) set({ session: null, currentOrgId: null });
+        else set({ session: null, toast: (e as Error).message });
+      }
+    },
+
+    async signOut() {
+      await api.logout();
+      get().closeProject();
+      set({ session: null, currentOrgId: null });
+    },
+
+    setCurrentOrg(id) {
+      set({ currentOrgId: id });
+    },
+
+    async openProject(id) {
+      set({ projectId: id, loadError: null, saveState: "saved", selected: [], collapsed: new Set(), past: [], future: [] });
+      try {
+        const p = await api.getProject(id);
+        applyDetail(p);
+        void get().refreshMembers();
+      } catch (e) {
+        set({ loadError: (e as Error).message, projectId: null });
+      }
+    },
+
+    closeProject() {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = null;
+      set({ projectId: null, project: empty, projectName: "", result: schedule(empty), version: 0, permissions: noPermissions, members: [], past: [], future: [], selected: [], saveState: "saved" });
+    },
+
+    async saveNow() {
+      const { projectId, project, projectName, version, saveState } = get();
+      if (!projectId || saveState === "saved" || saveState === "saving") return;
+      set({ saveState: "saving" });
+      try {
+        const r = await api.saveProject(projectId, { data: project, name: projectName || "Project", version });
+        set({ version: r.version, saveState: get().saveState === "saving" ? "saved" : get().saveState });
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          const p = await api.getProject(projectId);
+          applyDetail(p);
+          set({ saveState: "conflict", past: [], future: [] });
+        } else {
+          set({ saveState: "error", toast: (e as Error).message });
+        }
+      }
+    },
+
+    setProjectName(name) {
+      set({ projectName: name, saveState: "dirty" });
+      scheduleSave();
+    },
+
+    async refreshMembers() {
+      const id = get().projectId;
+      if (!id) return;
+      try {
+        set({ members: await api.projectMembers(id) });
+      } catch {
+        /* viewers without access to the list keep an empty list */
+      }
+    },
+
     setProject(project, name) {
-      commit(project, { name: name ?? "" });
+      commit(project, name === undefined ? {} : { name });
       set({ selected: [], collapsed: new Set() });
     },
 
@@ -168,9 +290,9 @@ export const useStore = create<AppState>((set, get) => {
       const p = get().project;
       const tasks = p.tasks.map((t) => {
         if (t.id !== id) return t;
-        const next: TaskInput = { ...t, ...patch };
+        const next: AppTask = { ...t, ...patch };
         // Remove keys explicitly set to undefined so exactOptionalPropertyTypes stays honest.
-        for (const k of Object.keys(next) as (keyof TaskInput)[]) if (next[k] === undefined) delete next[k];
+        for (const k of Object.keys(next) as (keyof AppTask)[]) if (next[k] === undefined) delete next[k];
         return next;
       });
       commit({ ...p, tasks });

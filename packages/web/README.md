@@ -8,6 +8,15 @@ pnpm --filter @gantt-planner/web dev      # http://localhost:5173
 pnpm --filter @gantt-planner/web build
 ```
 
+## Screens
+
+Sign in / sign up, invitation acceptance, project list (create, sample, import XML as a new
+project), organization admin (members, roles, invitations, audit log) and the project editor
+with a members & permissions panel. Projects are loaded from and autosaved to the server
+(`@gantt-planner/server`); a save that collides with someone else's reloads their version and
+says so. Viewers get a read-only editor, contributors can edit only the progress of tasks assigned
+to them, and the server enforces all of it regardless of the UI.
+
 ## What works
 
 - **Grid**: row number, WBS, name, duration, start, finish, predecessors (MS Project syntax such as
@@ -32,7 +41,20 @@ bidi text inside bars, axis direction, critical-path styling and the drag semant
 engine, and it has no licensing or upgrade dependency. Virtualization for very large projects is
 not implemented yet (the renderer draws every visible row).
 
+## End-to-end test
+
+`e2e/smoke.cjs` drives a real browser against a running server: sign-up, project creation,
+editing with autosave, guest invitation (read-only), contributor (progress only), organization
+admin, sign-out. CI runs it; locally:
+
+```bash
+pnpm build
+(cd packages/server && PGLITE_DIR=/tmp/pglite WEB_DIST=$PWD/../web/dist COOKIE_SECRET=x node dist/main.js &)
+(cd packages/web && node e2e/smoke.cjs)
+```
+
 ## Not yet
 
-Resources, baselines, Kanban, real-time collaboration, per-user content translation, column
-customization, printing/PDF, keyboard navigation inside the grid, virtualization.
+Resources, baselines, Kanban, real-time collaboration (today the last save wins after a conflict
+reload), per-user content translation, e-mail delivery of invitations, column customization,
+printing/PDF, keyboard navigation inside the grid, virtualization.

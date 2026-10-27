@@ -9,6 +9,7 @@ import { useStore } from "../store";
 interface Props {
   rows: string[];
   scale: Scale;
+  readOnly: boolean;
 }
 
 type Drag =
@@ -18,7 +19,7 @@ type Drag =
 const BAR_H = 16;
 const BAR_Y = (ROW_HEIGHT - BAR_H) / 2;
 
-export function GanttChart({ rows, scale }: Props) {
+export function GanttChart({ rows, scale, readOnly }: Props) {
   const s = useStore();
   const lang = s.prefs.lang;
   const svgRef = useRef<SVGSVGElement>(null);
@@ -34,6 +35,7 @@ export function GanttChart({ rows, scale }: Props) {
   };
 
   const startDrag = (e: React.PointerEvent, d: Drag) => {
+    if (readOnly) return;
     e.stopPropagation();
     e.preventDefault();
     svgRef.current?.setPointerCapture(e.pointerId);
@@ -150,7 +152,7 @@ export function GanttChart({ rows, scale }: Props) {
   return (
     <svg
       ref={svgRef}
-      className={"gantt" + (drag ? " dragging" : "")}
+      className={"gantt" + (drag ? " dragging" : "") + (readOnly ? " readonly" : "")}
       width={scale.width}
       height={height}
       onPointerMove={onMove}

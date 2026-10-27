@@ -6,15 +6,19 @@ import { calendarFor } from "../lib/calendars";
 import { fmtDate, fmtDuration, parseDuration } from "../lib/format";
 import { formatPredecessors, parsePredecessors } from "../lib/predecessors";
 import { HEADER_HEIGHT, ROW_HEIGHT } from "../lib/timeline";
-import { allRows, useStore } from "../store";
+import { allRows, useStore, type AppTask } from "../store";
 
 interface Props {
   rows: string[];
+  readOnly: boolean;
+  /** Read-only except progress on tasks assigned to the current user (contributor role). */
+  progressOnly: boolean;
 }
 
-export function TaskGrid({ rows }: Props) {
+export function TaskGrid({ rows, readOnly, progressOnly }: Props) {
   const s = useStore();
   const lang = s.prefs.lang;
+  const me = s.session?.user.id;
   const order = allRows(s.project);
   const rowNumber = new Map(order.map((id, i) => [id, i + 1] as const));
   const minutesPerDay = calendarFor(s.project).minutesPerDay;
@@ -43,14 +47,17 @@ export function TaskGrid({ rows }: Props) {
           <th className="c-date">{t(lang, "colStart")}</th>
           <th className="c-date">{t(lang, "colFinish")}</th>
           <th className="c-pred">{t(lang, "colPredecessors")}</th>
+          <th className="c-pct">{t(lang, "colProgress")}</th>
+          <th className="c-assignee">{t(lang, "colAssignee")}</th>
           <th className="c-slack">{t(lang, "colSlack")}</th>
         </tr>
       </thead>
       <tbody>
         {rows.map((id) => {
           const task = s.result.tasks[id]!;
-          const input = s.project.tasks.find((x) => x.id === id)!;
+          const input = s.project.tasks.find((x) => x.id === id)! as AppTask;
           const selected = s.selected.includes(id);
+          const canEditProgress = !task.isSummary && (!readOnly || (progressOnly && input.assigneeId === me));
           const cal = calendarFor(s.project, task.calendarId);
           return (
             <tr
@@ -78,6 +85,7 @@ export function TaskGrid({ rows }: Props) {
                   <EditableCell
                     value={task.name}
                     placeholder={t(lang, "untitled")}
+                    readOnly={readOnly}
                     onCommit={(v) => s.updateTask(id, { name: v })}
                   />
                 </div>
@@ -88,6 +96,7 @@ export function TaskGrid({ rows }: Props) {
                 ) : (
                   <EditableCell
                     value={fmtDuration(task.duration, cal.minutesPerDay, lang)}
+                    readOnly={readOnly}
                     onCommit={(v) => {
                       const d = parseDuration(v, cal.minutesPerDay);
                       if (d !== undefined) s.updateTask(id, { duration: d });
@@ -102,6 +111,7 @@ export function TaskGrid({ rows }: Props) {
                   <DateCell
                     value={task.start}
                     lang={lang}
+                    readOnly={readOnly}
                     title={constraintTitle(task, input.constraintDate, lang)}
                     onCommit={(ms) => {
                       if (input.schedulingMode === "manual") s.updateTask(id, { start: ms });
@@ -118,8 +128,45 @@ export function TaskGrid({ rows }: Props) {
                     const deps = parsePredecessors(v, id, (row) => order[row - 1], minutesPerDay);
                     if (deps) s.setPredecessors(id, deps);
                   }}
+                  readOnly={readOnly}
                   ltr
                 />
+              </td>
+              <td className="c-pct">
+                {task.isSummary ? (
+                  ""
+                ) : (
+                  <EditableCell
+                    value={String(input.percentComplete ?? 0)}
+                    readOnly={!canEditProgress}
+                    ltr
+                    onCommit={(v) => {
+                      const n = Math.max(0, Math.min(100, Math.round(Number(v))));
+                      if (Number.isFinite(n)) s.updateTask(id, { percentComplete: n });
+                    }}
+                  />
+                )}
+              </td>
+              <td className="c-assignee">
+                {task.isSummary ? (
+                  ""
+                ) : readOnly ? (
+                  <span dir="auto">{s.members.find((m) => m.id === input.assigneeId)?.name ?? ""}</span>
+                ) : (
+                  <select
+                    className="cell-select"
+                    value={input.assigneeId ?? ""}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => s.updateTask(id, { assigneeId: e.target.value || undefined } as Partial<AppTask>)}
+                  >
+                    <option value="">{t(lang, "unassigned")}</option>
+                    {s.members.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </td>
               <td className="c-slack" title={`${task.totalSlack} min`}>
                 {fmtDuration(task.totalSlack, cal.minutesPerDay, lang)}
@@ -142,11 +189,13 @@ function EditableCell({
   placeholder,
   onCommit,
   ltr,
+  readOnly,
 }: {
   value: string;
   placeholder?: string;
   onCommit: (v: string) => void;
   ltr?: boolean;
+  readOnly?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -157,9 +206,10 @@ function EditableCell({
   if (!editing) {
     return (
       <span
-        className={"cell-text" + (value ? "" : " placeholder")}
+        className={"cell-text" + (value ? "" : " placeholder") + (readOnly ? " ro" : "")}
         dir={ltr ? "ltr" : "auto"}
         onClick={(e) => {
+          if (readOnly) return;
           e.stopPropagation();
           setDraft(value);
           setEditing(true);
@@ -193,14 +243,15 @@ function EditableCell({
   );
 }
 
-function DateCell({ value, lang, title, onCommit }: { value: number; lang: "he" | "en"; title: string; onCommit: (ms: number) => void }) {
+function DateCell({ value, lang, title, onCommit, readOnly }: { value: number; lang: "he" | "en"; title: string; onCommit: (ms: number) => void; readOnly?: boolean }) {
   const [editing, setEditing] = useState(false);
   if (!editing) {
     return (
       <span
-        className={"cell-text" + (title ? " constrained" : "")}
+        className={"cell-text" + (title ? " constrained" : "") + (readOnly ? " ro" : "")}
         title={title}
         onClick={(e) => {
+          if (readOnly) return;
           e.stopPropagation();
           setEditing(true);
         }}
