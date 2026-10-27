@@ -18,8 +18,17 @@ the same code runs in the browser (instant feedback while editing) and on the se
 - **CPM**: forward pass (early dates), backward pass (late dates), total and free slack,
   critical path with configurable slack threshold. Forcing constraints that conflict with
   dependencies produce negative slack and a warning, as in MS Project.
+- **Resources and assignments**: work, material and cost resources with rates, cost per use,
+  max units and their own calendars. Work = duration × units for work resources; task and
+  summary work/cost roll up; per-day load against each resource's own calendar flags
+  overallocation (a US resource on an Israeli Sunday, two full-time tasks on one person).
+- **Task types**: fixed units / fixed duration / fixed work and effort-driven editing helpers
+  (`setTaskDuration`, `setTaskWork`, `setAssignmentUnits`, `assignResource`, `unassignResource`)
+  that keep Duration × Units = Work consistent the way MS Project does.
+- **Baselines**: up to eleven snapshots (`takeBaseline`), with start/finish/work/cost variances
+  against baseline 0 on every scheduled task.
 - **Validation**: duplicate ids, unknown references, dependency cycles (the offending cycle is
-  reported), parent/child cycles.
+  reported), parent/child cycles, assignments to unknown tasks or resources.
 
 ## Usage
 
@@ -59,6 +68,7 @@ from MS Project once the MSPDI package exists:
 
 ## Not yet
 
-Resources and assignments (work = duration × units, task types), baselines, tracking (actual
-dates, status date), resource leveling, earned value, incremental recomputation. The 10,000-task
-chain currently schedules in under a second; the target is under 100 ms.
+Tracking (actual dates, status date, remaining work), resource leveling, earned value,
+work contours and timephased data, incremental recomputation. A 10,000-task chain schedules in
+about 200 ms and a 2,000-task project with summaries in about 50 ms; the target is under 100 ms
+for the chain.

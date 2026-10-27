@@ -58,6 +58,12 @@ export function toInt(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+export function toNumber(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === "") return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 export function toBool(v: unknown): boolean | undefined {
   if (v === undefined || v === null || v === "") return undefined;
   const s = String(v).toLowerCase();

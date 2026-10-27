@@ -1,5 +1,6 @@
 import { WorkCalendar, israelStandard, presetCalendars, type CalendarDefinition } from "./calendar.js";
 import { topologicalOrder } from "./graph.js";
+import { computeResources, type TaskDates } from "./resources.js";
 import {
   SchedulingError,
   type ConstraintType,
@@ -74,6 +75,7 @@ export function schedule(input: ProjectInput): ScheduleResult {
   const criticalThreshold = input.options?.criticalSlackThreshold ?? 0;
 
   // ---- nodes --------------------------------------------------------------
+  const inputTask = new Map(input.tasks.map((t) => [t.id, t] as const));
   const nodes = new Map<string, Node>();
   for (const t of input.tasks) {
     if (nodes.has(t.id)) throw new SchedulingError(`Duplicate task id "${t.id}"`, "INVALID_INPUT");
@@ -123,13 +125,13 @@ export function schedule(input: ProjectInput): ScheduleResult {
       n.mode = "auto";
       n.isMilestone = false;
     } else {
-      n.isMilestone = n.duration === 0 || (input.tasks.find((t) => t.id === n.id)?.isMilestone ?? false);
+      n.isMilestone = n.duration === 0 || (inputTask.get(n.id)?.isMilestone ?? false);
     }
     if (n.constraint !== "ASAP" && n.constraint !== "ALAP" && n.constraintDate === undefined) {
       throw new SchedulingError(`Task "${n.id}": constraint ${n.constraint} requires constraintDate`, "INVALID_INPUT");
     }
     if (n.mode === "manual" && !n.isSummary) {
-      const t = input.tasks.find((x) => x.id === n.id)!;
+      const t = inputTask.get(n.id)!;
       if (t.start === undefined) throw new SchedulingError(`Manual task "${n.id}" requires start`, "INVALID_INPUT");
     }
   }
@@ -366,7 +368,7 @@ export function schedule(input: ProjectInput): ScheduleResult {
   // Manual tasks are pinned from the start.
   for (const n of nodes.values()) {
     if (n.mode !== "manual" || n.isSummary) continue;
-    const t = input.tasks.find((x) => x.id === n.id)!;
+    const t = inputTask.get(n.id)!;
     n.s = t.start!;
     if (t.finish !== undefined) {
       n.f = t.finish;
@@ -437,9 +439,43 @@ export function schedule(input: ProjectInput): ScheduleResult {
     projectFinish = backwardPass();
   }
 
+  // ---- resources, work and cost ---------------------------------------------
+  const taskDates = new Map<string, TaskDates>();
+  for (const n of orderedNodes) {
+    taskDates.set(n.id, { start: n.s, finish: n.f, duration: n.isSummary ? n.cal.workingMinutesBetween(n.s, n.f) : n.duration, isSummary: n.isSummary, cal: n.cal });
+  }
+  const calendarFor = (id: string | undefined): WorkCalendar => {
+    if (!id) return projectCal;
+    const c = calendars.get(id);
+    if (!c) throw new SchedulingError(`Unknown calendar "${id}"`, "UNKNOWN_CALENDAR");
+    return c;
+  };
+  const res = computeResources(input, taskDates, calendarFor, warn);
+  const workOf = new Map<string, number>();
+  const costOf = new Map<string, number>();
+  // Leaves first, then summaries bottom-up (deepest first).
+  for (const n of [...orderedNodes].sort((a, b) => b.level - a.level)) {
+    if (n.isSummary) {
+      let w = 0;
+      let c = inputTask.get(n.id)?.fixedCost ?? 0;
+      for (const ch of n.children) {
+        w += workOf.get(ch) ?? 0;
+        c += costOf.get(ch) ?? 0;
+      }
+      workOf.set(n.id, w);
+      costOf.set(n.id, c);
+    } else {
+      workOf.set(n.id, res.taskWork.get(n.id) ?? 0);
+      costOf.set(n.id, (res.taskCost.get(n.id) ?? 0) + (inputTask.get(n.id)?.fixedCost ?? 0));
+    }
+  }
+  const baseline0 = (input.baselines ?? []).find((b) => b.index === 0);
+
   // ---- slack, critical path, output -----------------------------------------
   const tasks: Record<string, ScheduledTask> = {};
   const criticalPath: string[] = [];
+  let totalWork = 0;
+  let totalCost = 0;
   for (const n of orderedNodes) {
     const totalSlack = Math.min(n.cal.workingMinutesBetween(n.es, n.ls), n.cal.workingMinutesBetween(n.ef, n.lf));
     let freeSlack = totalSlack;
@@ -475,6 +511,13 @@ export function schedule(input: ProjectInput): ScheduleResult {
       warn("DEADLINE_MISSED", n.id, `Finish ${iso(n.f)} is after deadline ${iso(n.deadline)}.`);
     }
     if (isCritical && !n.isSummary) criticalPath.push(n.id);
+    const work = workOf.get(n.id) ?? 0;
+    const cost = costOf.get(n.id) ?? 0;
+    if (n.parentId === null) {
+      totalWork += work;
+      totalCost += cost;
+    }
+    const bl = baseline0?.tasks[n.id] ?? null;
     tasks[n.id] = {
       id: n.id,
       name: n.name,
@@ -497,10 +540,28 @@ export function schedule(input: ProjectInput): ScheduleResult {
       totalSlack,
       freeSlack,
       isCritical,
+      work,
+      cost,
+      baseline: bl,
+      startVariance: bl ? n.cal.workingMinutesBetween(bl.start, n.s) : null,
+      finishVariance: bl ? n.cal.workingMinutesBetween(bl.finish, n.f) : null,
+      workVariance: bl ? work - bl.work : null,
+      costVariance: bl ? cost - bl.cost : null,
     };
   }
 
-  return { projectStart: projectStartSnapped, projectFinish, tasks, order, criticalPath, warnings };
+  return {
+    projectStart: projectStartSnapped,
+    projectFinish,
+    tasks,
+    order,
+    criticalPath,
+    assignments: res.assignments,
+    resources: res.resources,
+    work: totalWork,
+    cost: totalCost,
+    warnings,
+  };
 }
 
 function iso(ms: number): string {

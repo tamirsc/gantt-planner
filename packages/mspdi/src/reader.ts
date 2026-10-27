@@ -1,14 +1,26 @@
 import { XMLParser } from "fast-xml-parser";
 import {
+  type AssignmentInput,
+  type BaselineInput,
   type CalendarDefinition,
   type CalendarException,
   type DependencyInput,
   type ProjectInput,
+  type ResourceInput,
   type TaskInput,
   type TimeInterval,
 } from "@gantt-planner/engine";
-import { CONSTRAINT_FROM_CODE, LINK_TYPE_FROM_CODE, isElapsedFormat, isPercentFormat } from "./codes.js";
-import { asArray, parseClockTime, parseDateTime, parseTimeSpan, toBool, toInt } from "./xmlvalue.js";
+import {
+  CONSTRAINT_FROM_CODE,
+  LINK_TYPE_FROM_CODE,
+  RATE_FORMAT_HOURLY,
+  RESOURCE_TYPE_FROM_CODE,
+  TASK_TYPE_FROM_CODE,
+  UNASSIGNED_RESOURCE_UID,
+  isElapsedFormat,
+  isPercentFormat,
+} from "./codes.js";
+import { asArray, parseClockTime, parseDateTime, parseTimeSpan, toBool, toInt, toNumber } from "./xmlvalue.js";
 
 /** Values MS Project stored in the file; used to compare our schedule against MS Project's. */
 export interface StoredTaskValues {
@@ -32,10 +44,13 @@ export interface StoredTaskValues {
   durationMinutes?: number;
   durationFormat?: number;
   percentComplete?: number;
+  /** Minutes. */
+  work?: number;
+  cost?: number;
 }
 
 export interface MspdiReadWarning {
-  code: "ELAPSED_DURATION" | "PERCENT_LAG" | "UNSUPPORTED_EXCEPTION" | "DERIVED_CALENDAR" | "SKIPPED_TASK";
+  code: "ELAPSED_DURATION" | "PERCENT_LAG" | "UNSUPPORTED_EXCEPTION" | "DERIVED_CALENDAR" | "SKIPPED_TASK" | "RATE_FORMAT" | "SKIPPED_ASSIGNMENT";
   message: string;
   taskUid?: number;
 }
@@ -57,7 +72,7 @@ const parser = new XMLParser({
   parseTagValue: false,
   trimValues: true,
   isArray: (name) =>
-    ["Calendar", "WeekDay", "WorkingTime", "Exception", "WorkWeek", "Task", "PredecessorLink", "ExtendedAttribute"].includes(
+    ["Calendar", "WeekDay", "WorkingTime", "Exception", "WorkWeek", "Task", "PredecessorLink", "ExtendedAttribute", "Resource", "Assignment", "Baseline"].includes(
       name,
     ),
 });
@@ -87,6 +102,7 @@ export function readMspdi(xml: string): MspdiDocument {
   const dependencies: DependencyInput[] = [];
   const stored: Record<string, StoredTaskValues> = {};
   const durations = new Map<string, number>();
+  const baselines = new Map<number, BaselineInput>();
   // Outline stack: parent at each level.
   const stack: string[] = [];
 
@@ -152,8 +168,29 @@ export function readMspdi(xml: string): MspdiDocument {
     }
     const pct = toInt(raw["PercentComplete"]);
     if (pct !== undefined) task.percentComplete = pct;
+    const taskType = TASK_TYPE_FROM_CODE[toInt(raw["Type"]) ?? -1];
+    if (taskType && taskType !== "fixedUnits") task.taskType = taskType;
+    if (toBool(raw["EffortDriven"])) task.effortDriven = true;
+    const fixedCost = toNumber(raw["FixedCost"]);
+    if (fixedCost) task.fixedCost = fixedCost;
     tasks.push(task);
     durations.set(id, durationMinutes);
+
+    for (const bl of asArray(raw["Baseline"]) as Record<string, unknown>[]) {
+      const number = toInt(bl["Number"]);
+      const bStart = parseDateTime(bl["Start"]);
+      const bFinish = parseDateTime(bl["Finish"]);
+      if (number === undefined || bStart === undefined || bFinish === undefined) continue;
+      let entry = baselines.get(number);
+      if (!entry) baselines.set(number, (entry = { index: number, takenAt: projectStart, tasks: {} }));
+      entry.tasks[id] = {
+        start: bStart,
+        finish: bFinish,
+        duration: parseTimeSpan(bl["Duration"]) ?? 0,
+        work: parseTimeSpan(bl["Work"]) ?? 0,
+        cost: toNumber(bl["Cost"]) ?? 0,
+      };
+    }
 
     for (const link of asArray(raw["PredecessorLink"]) as Record<string, unknown>[]) {
       const predUid = toInt(link["PredecessorUID"]);
@@ -204,6 +241,10 @@ export function readMspdi(xml: string): MspdiDocument {
     if (ms !== undefined) storedValues.milestone = ms;
     storedValues.durationMinutes = durationMinutes;
     if (durationFormat !== undefined) storedValues.durationFormat = durationFormat;
+    const storedWork = parseTimeSpan(raw["Work"]);
+    if (storedWork !== undefined) storedValues.work = storedWork;
+    const storedCost = toNumber(raw["Cost"]);
+    if (storedCost !== undefined) storedValues.cost = storedCost;
     if (pct !== undefined) storedValues.percentComplete = pct;
     stored[id] = storedValues;
   }
@@ -218,6 +259,60 @@ export function readMspdi(xml: string): MspdiDocument {
     }
   }
 
+  // ---- resources ----------------------------------------------------------
+  const resources: ResourceInput[] = [];
+  for (const raw of asArray((root["Resources"] as Record<string, unknown> | undefined)?.["Resource"]) as Record<string, unknown>[]) {
+    const uid = toInt(raw["UID"]);
+    if (uid === undefined || uid === 0 || toBool(raw["IsNull"])) continue; // UID 0 is the "Unassigned" placeholder
+    const r: ResourceInput = { id: String(uid), name: String(raw["Name"] ?? `Resource ${uid}`) };
+    const type = RESOURCE_TYPE_FROM_CODE[toInt(raw["Type"]) ?? 1] ?? "work";
+    if (type !== "work") r.type = type;
+    const maxUnits = toNumber(raw["MaxUnits"]);
+    if (maxUnits !== undefined && maxUnits !== 1) r.maxUnits = maxUnits;
+    const calUid = toInt(raw["CalendarUID"]);
+    if (calUid !== undefined && calUid !== -1 && calendars.some((c) => c.id === String(calUid))) r.calendarId = String(calUid);
+    const rate = toNumber(raw["StandardRate"]);
+    if (rate) {
+      const format = toInt(raw["StandardRateFormat"]) ?? RATE_FORMAT_HOURLY;
+      // Convert daily/weekly rates to hourly using the project's day length; other formats are kept as given and flagged.
+      if (format === 3) r.standardRate = rate / (minutesPerDay / 60);
+      else if (format === 4) r.standardRate = rate / ((minutesPerDay / 60) * 5);
+      else {
+        r.standardRate = rate;
+        if (format !== RATE_FORMAT_HOURLY && type === "work") {
+          warnings.push({ code: "RATE_FORMAT", message: `Resource ${uid}: standard rate format ${format} treated as hourly.` });
+        }
+      }
+    }
+    const perUse = toNumber(raw["CostPerUse"]);
+    if (perUse) r.costPerUse = perUse;
+    resources.push(r);
+  }
+  const resourceIds = new Set(resources.map((r) => r.id));
+
+  // ---- assignments --------------------------------------------------------
+  const assignments: AssignmentInput[] = [];
+  for (const raw of asArray((root["Assignments"] as Record<string, unknown> | undefined)?.["Assignment"]) as Record<string, unknown>[]) {
+    const taskUid = toInt(raw["TaskUID"]);
+    const resourceUid = toInt(raw["ResourceUID"]);
+    if (taskUid === undefined || resourceUid === undefined || resourceUid === UNASSIGNED_RESOURCE_UID) continue;
+    if (!durations.has(String(taskUid)) || !resourceIds.has(String(resourceUid))) {
+      warnings.push({ code: "SKIPPED_ASSIGNMENT", taskUid, message: `Assignment of resource ${resourceUid} to task ${taskUid} refers to an unknown task or resource.` });
+      continue;
+    }
+    const a: AssignmentInput = { taskId: String(taskUid), resourceId: String(resourceUid) };
+    const units = toNumber(raw["Units"]);
+    if (units !== undefined && units !== 1) a.units = units;
+    const work = parseTimeSpan(raw["Work"]);
+    if (work !== undefined) a.work = work;
+    const resource = resources.find((r) => r.id === a.resourceId)!;
+    if (resource.type === "cost") {
+      const cost = toNumber(raw["Cost"]);
+      if (cost !== undefined) a.cost = cost;
+    }
+    assignments.push(a);
+  }
+
   const projectCalendarId =
     projectCalendarUid !== undefined && calendars.some((c) => c.id === String(projectCalendarUid))
       ? String(projectCalendarUid)
@@ -225,6 +320,9 @@ export function readMspdi(xml: string): MspdiDocument {
 
   const project: ProjectInput = { start: projectStart, tasks, dependencies };
   if (calendars.length > 0) project.calendars = calendars;
+  if (resources.length > 0) project.resources = resources;
+  if (assignments.length > 0) project.assignments = assignments;
+  if (baselines.size > 0) project.baselines = [...baselines.values()].sort((a, b) => a.index - b.index);
   if (projectCalendarId !== undefined) project.calendarId = projectCalendarId;
   const criticalSlackLimitDays = toInt(root["CriticalSlackLimit"]);
   if (criticalSlackLimitDays !== undefined && criticalSlackLimitDays > 0) {

@@ -24,7 +24,10 @@ const xml = writeMspdi(doc.project, { name: doc.name, result });
 | `Calendar` with `WeekDays` (DayType 1 = Sunday … 7 = Saturday), `WorkingTimes`, `Exceptions`, legacy `DayType 0` exceptions, `BaseCalendarUID` inheritance | `CalendarDefinition` |
 | `Task`: `UID`, `Name`, `OutlineLevel` (hierarchy), `Duration` (`PT8H0M0S`), `Milestone`, `Manual` + `ManualStart/Finish`, `ConstraintType` (0 ASAP … 7 FNLT) + `ConstraintDate`, `Deadline`, `CalendarUID`, `PercentComplete` | `TaskInput` |
 | `PredecessorLink`: `Type` (0 FF, 1 FS, 2 SF, 3 SS), `LinkLag` (tenths of a minute), percent `LagFormat` | `DependencyInput` |
-| `Start`, `Finish`, `Early*`, `Late*`, `TotalSlack`, `FreeSlack` (tenths of a minute), `Critical` | returned in `doc.stored` for comparison, never used for scheduling |
+| `Task`: `Type` (0 fixed units, 1 fixed duration, 2 fixed work), `EffortDriven`, `FixedCost`, `Baseline` (Number, Start, Finish, Duration, Work, Cost) | task type, effort-driven flag, fixed cost, `BaselineInput` |
+| `Resource`: `UID`, `Name`, `Type` (0 material, 1 work, 2 cost), `MaxUnits`, `CalendarUID`, `StandardRate` + `StandardRateFormat` (daily/weekly converted to hourly), `CostPerUse` | `ResourceInput` (UID 0 "Unassigned" skipped) |
+| `Assignment`: `TaskUID`, `ResourceUID`, `Units` (decimal fraction), `Work`, `Cost` | `AssignmentInput` (unassigned placeholders skipped) |
+| `Start`, `Finish`, `Early*`, `Late*`, `TotalSlack`, `FreeSlack` (tenths of a minute), `Critical`, `Work`, `Cost` | returned in `doc.stored` for comparison, never used for scheduling |
 
 Task UID 0 (project summary), `IsNull` tasks and external tasks are skipped. Recurring calendar
 exceptions are applied to their first period only, elapsed durations are treated as working time,
@@ -39,5 +42,6 @@ consistency only.
 
 ## Not yet
 
-Resources and assignments, baselines, actuals, extended attributes (custom fields), outline codes,
-WBS masks, timephased data, `.mpp` binary files (planned via an MPXJ service).
+Actuals and tracking, cost rate tables and overtime, work contours, extended attributes (custom
+fields), outline codes, WBS masks, timephased data, `.mpp` binary files (planned via an MPXJ
+service).

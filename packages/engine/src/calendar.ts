@@ -52,6 +52,7 @@ export class WorkCalendar {
   readonly minutesPerDay: number;
   private readonly weekDays: TimeInterval[][];
   private readonly exceptions: NormalizedException[];
+  private readonly dayCache = new Map<number, Array<{ start: number; end: number }>>();
 
   constructor(def: CalendarDefinition) {
     this.id = def.id;
@@ -75,6 +76,15 @@ export class WorkCalendar {
   /** Working intervals (absolute ms) for the day containing `ms`. */
   intervalsOn(ms: number): Array<{ start: number; end: number }> {
     const day = dayStart(ms);
+    const cached = this.dayCache.get(day);
+    if (cached) return cached;
+    const computed = this.computeIntervals(day);
+    if (this.dayCache.size > 200_000) this.dayCache.clear();
+    this.dayCache.set(day, computed);
+    return computed;
+  }
+
+  private computeIntervals(day: number): Array<{ start: number; end: number }> {
     let ivs: TimeInterval[] | undefined;
     // Later exceptions win, matching MS Project's "last defined" behaviour.
     for (let i = this.exceptions.length - 1; i >= 0; i--) {

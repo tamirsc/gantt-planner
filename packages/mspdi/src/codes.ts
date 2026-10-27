@@ -1,4 +1,4 @@
-import type { ConstraintType, DependencyType } from "@gantt-planner/engine";
+import type { ConstraintType, DependencyType, ResourceType, TaskType } from "@gantt-planner/engine";
 
 export const MSPDI_NAMESPACE = "http://schemas.microsoft.com/project";
 
@@ -53,3 +53,17 @@ export function isElapsedFormat(code: number | undefined): boolean {
 export function isPercentFormat(code: number | undefined): boolean {
   return code !== undefined && PERCENT_FORMATS.has(code);
 }
+
+/** Task/Type */
+export const TASK_TYPE_FROM_CODE: Record<number, TaskType> = { 0: "fixedUnits", 1: "fixedDuration", 2: "fixedWork" };
+export const TASK_TYPE_TO_CODE: Record<TaskType, number> = { fixedUnits: 0, fixedDuration: 1, fixedWork: 2 };
+
+/** Resource/Type */
+export const RESOURCE_TYPE_FROM_CODE: Record<number, ResourceType> = { 0: "material", 1: "work", 2: "cost" };
+export const RESOURCE_TYPE_TO_CODE: Record<ResourceType, number> = { material: 0, work: 1, cost: 2 };
+
+/** Resource/StandardRateFormat: 1 minute, 2 hour, 3 day, 4 week, 5 month, 7 year, 8 material */
+export const RATE_FORMAT_HOURLY = 2;
+
+/** Assignment/ResourceUID for an assignment without a resource. */
+export const UNASSIGNED_RESOURCE_UID = -65535;

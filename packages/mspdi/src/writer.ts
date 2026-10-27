@@ -8,7 +8,7 @@ import {
   type ScheduleResult,
   type ScheduledTask,
 } from "@gantt-planner/engine";
-import { CONSTRAINT_TO_CODE, DurationFormat, LINK_TYPE_TO_CODE, MSPDI_NAMESPACE } from "./codes.js";
+import { CONSTRAINT_TO_CODE, DurationFormat, LINK_TYPE_TO_CODE, MSPDI_NAMESPACE, RATE_FORMAT_HOURLY, RESOURCE_TYPE_TO_CODE, TASK_TYPE_TO_CODE } from "./codes.js";
 import { escapeXml, formatClockTime, formatDateTime, formatTimeSpan } from "./xmlvalue.js";
 
 export interface WriteOptions {
@@ -35,6 +35,7 @@ export function writeMspdi(project: ProjectInput, options: WriteOptions = {}): s
   const projectCalId = project.calendarId ?? project.calendars?.[0]?.id ?? israelStandard.id;
   const usedIds = new Set<string>([projectCalId]);
   for (const t of Object.values(result.tasks)) usedIds.add(t.calendarId);
+  for (const r of project.resources ?? []) if (r.calendarId) usedIds.add(r.calendarId);
   const calendarUid = new Map<string, number>();
   const orderedCalIds = [projectCalId, ...[...usedIds].filter((id) => id !== projectCalId).sort()];
   orderedCalIds.forEach((id, i) => calendarUid.set(id, i + 1));
@@ -65,6 +66,12 @@ export function writeMspdi(project: ProjectInput, options: WriteOptions = {}): s
   const allNumeric = outline.every((t) => /^[1-9]\d*$/.test(t.id));
   const uidOf = new Map<string, number>();
   outline.forEach((t, i) => uidOf.set(t.id, allNumeric ? Number(t.id) : i + 1));
+
+  const resources = project.resources ?? [];
+  const resourcesNumeric = resources.every((r) => /^[1-9]\d*$/.test(r.id));
+  const resourceUid = new Map<string, number>();
+  resources.forEach((r, i) => resourceUid.set(r.id, resourcesNumeric ? Number(r.id) : i + 1));
+  const baselinesOf = (taskId: string) => (project.baselines ?? []).filter((b) => b.tasks[taskId]).map((b) => ({ index: b.index, v: b.tasks[taskId]! }));
 
   const predsOf = new Map<string, NonNullable<ProjectInput["dependencies"]>>();
   for (const d of project.dependencies ?? []) {
@@ -209,7 +216,7 @@ export function writeMspdi(project: ProjectInput, options: WriteOptions = {}): s
     el("UID", uidOf.get(t.id)!);
     el("ID", index + 1);
     el("Name", t.name);
-    el("Type", 1);
+    el("Type", TASK_TYPE_TO_CODE[input.taskType ?? "fixedUnits"]);
     el("IsNull", 0);
     el("WBS", t.wbs);
     el("OutlineNumber", t.wbs);
@@ -219,9 +226,9 @@ export function writeMspdi(project: ProjectInput, options: WriteOptions = {}): s
     date("Finish", t.finish);
     el("Duration", formatTimeSpan(t.duration));
     el("DurationFormat", DurationFormat.days);
-    el("Work", "PT0H0M0S");
+    el("Work", formatTimeSpan(t.work));
     el("ResumeValid", 0);
-    el("EffortDriven", 0);
+    bool("EffortDriven", input.effortDriven ?? false);
     el("Recurring", 0);
     el("OverAllocated", 0);
     el("Estimated", 0);
@@ -240,11 +247,11 @@ export function writeMspdi(project: ProjectInput, options: WriteOptions = {}): s
     el("WorkVariance", 0);
     el("FreeSlack", Math.round(t.freeSlack * 10));
     el("TotalSlack", Math.round(t.totalSlack * 10));
-    el("FixedCost", 0);
+    el("FixedCost", input.fixedCost ?? 0);
     el("FixedCostAccrual", 3);
     el("PercentComplete", input.percentComplete ?? 0);
     el("PercentWorkComplete", input.percentComplete ?? 0);
-    el("Cost", 0);
+    el("Cost", round2(t.cost));
     el("OvertimeCost", 0);
     el("OvertimeWork", "PT0H0M0S");
     el("ActualDuration", "PT0H0M0S");
@@ -254,8 +261,8 @@ export function writeMspdi(project: ProjectInput, options: WriteOptions = {}): s
     el("ActualOvertimeWork", "PT0H0M0S");
     el("RegularWork", "PT0H0M0S");
     el("RemainingDuration", formatTimeSpan(t.duration));
-    el("RemainingCost", 0);
-    el("RemainingWork", "PT0H0M0S");
+    el("RemainingCost", round2(t.cost));
+    el("RemainingWork", formatTimeSpan(t.work));
     el("RemainingOvertimeCost", 0);
     el("RemainingOvertimeWork", "PT0H0M0S");
     el("ACWP", 0);
@@ -286,6 +293,17 @@ export function writeMspdi(project: ProjectInput, options: WriteOptions = {}): s
       el("LagFormat", DurationFormat.days);
       x.push("</PredecessorLink>");
     }
+    for (const { index, v } of baselinesOf(t.id)) {
+      x.push("<Baseline>");
+      el("Number", index);
+      date("Start", v.start);
+      date("Finish", v.finish);
+      el("Duration", formatTimeSpan(v.duration));
+      el("DurationFormat", DurationFormat.days);
+      el("Work", formatTimeSpan(v.work));
+      el("Cost", round2(v.cost));
+      x.push("</Baseline>");
+    }
     el("IsPublished", 1);
     el("CommitmentType", 0);
     // Manual scheduling (Project 2010+). Written after the 2007 elements to respect schema order.
@@ -299,8 +317,60 @@ export function writeMspdi(project: ProjectInput, options: WriteOptions = {}): s
     x.push("</Task>");
   });
   x.push("</Tasks>");
-  x.push("<Resources/>");
-  x.push("<Assignments/>");
+
+  // ---- resources ----------------------------------------------------------
+  if (resources.length === 0) x.push("<Resources/>");
+  else {
+    x.push("<Resources>");
+    resources.forEach((r, i) => {
+      const usage = result.resources[r.id];
+      x.push("<Resource>");
+      el("UID", resourceUid.get(r.id)!);
+      el("ID", i + 1);
+      el("Name", r.name ?? r.id);
+      el("Type", RESOURCE_TYPE_TO_CODE[r.type ?? "work"]);
+      el("IsNull", 0);
+      el("MaxUnits", r.maxUnits ?? 1);
+      el("PeakUnits", usage && Number.isFinite(usage.peakUnits) ? usage.peakUnits : 0);
+      bool("OverAllocated", usage?.isOverallocated ?? false);
+      el("CanLevel", 1);
+      el("AccrueAt", 3);
+      el("Work", formatTimeSpan(usage?.work ?? 0));
+      el("StandardRate", r.standardRate ?? 0);
+      el("StandardRateFormat", (r.type ?? "work") === "material" ? 8 : RATE_FORMAT_HOURLY);
+      el("Cost", round2(usage?.cost ?? 0));
+      el("OvertimeRate", 0);
+      el("OvertimeRateFormat", RATE_FORMAT_HOURLY);
+      el("CostPerUse", r.costPerUse ?? 0);
+      el("CalendarUID", r.calendarId && r.calendarId !== projectCalId && calendarUid.has(r.calendarId) ? calendarUid.get(r.calendarId)! : -1);
+      x.push("</Resource>");
+    });
+    x.push("</Resources>");
+  }
+
+  // ---- assignments --------------------------------------------------------
+  const scheduledAssignments = result.assignments.filter((a) => uidOf.has(a.taskId) && resourceUid.has(a.resourceId));
+  if (scheduledAssignments.length === 0) x.push("<Assignments/>");
+  else {
+    x.push("<Assignments>");
+    scheduledAssignments.forEach((a, i) => {
+      x.push("<Assignment>");
+      el("UID", i + 1);
+      el("TaskUID", uidOf.get(a.taskId)!);
+      el("ResourceUID", resourceUid.get(a.resourceId)!);
+      el("PercentWorkComplete", 0);
+      el("Cost", round2(a.cost));
+      date("Finish", a.finish);
+      el("RemainingCost", round2(a.cost));
+      el("RemainingWork", formatTimeSpan(a.work));
+      date("Start", a.start);
+      el("Units", a.units);
+      el("Work", formatTimeSpan(a.work));
+      el("WorkContour", 0);
+      x.push("</Assignment>");
+    });
+    x.push("</Assignments>");
+  }
   x.push("</Project>");
   return x.join("\n");
 }
@@ -312,4 +382,8 @@ function firstStart(def: CalendarDefinition): number {
 function lastEnd(def: CalendarDefinition): number {
   for (const d of def.weekDays) if (d.length > 0) return d[d.length - 1]!.to;
   return 17 * 60;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }

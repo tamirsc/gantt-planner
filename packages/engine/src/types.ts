@@ -14,6 +14,55 @@ export type ConstraintType =
 
 export type SchedulingMode = "auto" | "manual";
 
+/** MS Project task types: which of duration, units and work stays fixed when another changes. */
+export type TaskType = "fixedUnits" | "fixedDuration" | "fixedWork";
+
+export type ResourceType = "work" | "material" | "cost";
+
+export interface ResourceInput {
+  id: string;
+  name?: string;
+  /** Defaults to "work". */
+  type?: ResourceType;
+  /** Capacity as a fraction of the calendar (1 = 100%, 3 = three people). Work resources only. Defaults to 1. */
+  maxUnits?: number;
+  /** Calendar id for work resources; defaults to the project calendar. */
+  calendarId?: string;
+  /** Cost per working hour (work) or per unit (material). */
+  standardRate?: number;
+  /** Fixed cost charged once per assignment. */
+  costPerUse?: number;
+}
+
+export interface AssignmentInput {
+  taskId: string;
+  resourceId: string;
+  /** Work: fraction of the resource's time (1 = 100%). Material: quantity. Defaults to 1. */
+  units?: number;
+  /**
+   * Work in minutes. When omitted on a work resource it is derived as duration × units.
+   * Use the helpers in assignments.ts to keep duration, units and work consistent.
+   */
+  work?: number;
+  /** Cost resources: the amount charged. */
+  cost?: number;
+}
+
+export interface BaselineTaskValues {
+  start: number;
+  finish: number;
+  duration: number;
+  work: number;
+  cost: number;
+}
+
+export interface BaselineInput {
+  /** 0 = "Baseline", 1–10 = "Baseline 1" … "Baseline 10". */
+  index: number;
+  takenAt: number;
+  tasks: Record<string, BaselineTaskValues>;
+}
+
 export interface TaskInput {
   id: string;
   name?: string;
@@ -37,6 +86,12 @@ export interface TaskInput {
   /** Calendar id; defaults to the project calendar. */
   calendarId?: string;
   percentComplete?: number;
+  /** Defaults to "fixedUnits". */
+  taskType?: TaskType;
+  /** Effort-driven: adding resources shortens the task (total work stays). Defaults to false. */
+  effortDriven?: boolean;
+  /** Cost not tied to a resource. */
+  fixedCost?: number;
 }
 
 export interface DependencyInput {
@@ -68,6 +123,9 @@ export interface ProjectInput {
   calendars?: CalendarDefinition[];
   tasks: TaskInput[];
   dependencies?: DependencyInput[];
+  resources?: ResourceInput[];
+  assignments?: AssignmentInput[];
+  baselines?: BaselineInput[];
   options?: ScheduleOptions;
 }
 
@@ -97,6 +155,42 @@ export interface ScheduledTask {
   /** Working minutes the task can slip without delaying any successor. */
   freeSlack: number;
   isCritical: boolean;
+  /** Total work of all assignments in minutes (summaries roll up). */
+  work: number;
+  /** Assignment costs plus fixed cost (summaries roll up). */
+  cost: number;
+  /** Values from baseline 0 when one was taken for this task. */
+  baseline: BaselineTaskValues | null;
+  /** Working minutes later (positive) or earlier than the baseline; null without a baseline. */
+  startVariance: number | null;
+  finishVariance: number | null;
+  workVariance: number | null;
+  costVariance: number | null;
+}
+
+export interface ScheduledAssignment {
+  taskId: string;
+  resourceId: string;
+  units: number;
+  work: number;
+  cost: number;
+  start: number;
+  finish: number;
+}
+
+export interface ResourceUsage {
+  id: string;
+  name: string;
+  type: ResourceType;
+  maxUnits: number;
+  /** Total assigned work in minutes. */
+  work: number;
+  cost: number;
+  /** Highest units demanded on any single day. */
+  peakUnits: number;
+  /** Day starts (epoch ms) on which demand exceeds capacity. */
+  overallocatedDays: number[];
+  isOverallocated: boolean;
 }
 
 export type WarningCode =
@@ -104,7 +198,9 @@ export type WarningCode =
   | "DEADLINE_MISSED"
   | "NEGATIVE_SLACK"
   | "SUMMARY_DEPENDENCY_APPROXIMATED"
-  | "MANUAL_TASK_BEFORE_PREDECESSOR";
+  | "MANUAL_TASK_BEFORE_PREDECESSOR"
+  | "RESOURCE_OVERALLOCATED"
+  | "UNKNOWN_ASSIGNMENT_TARGET";
 
 export interface ScheduleWarning {
   code: WarningCode;
@@ -121,6 +217,11 @@ export interface ScheduleResult {
   order: string[];
   /** Ids of critical leaf tasks and milestones, in scheduling order. */
   criticalPath: string[];
+  assignments: ScheduledAssignment[];
+  resources: Record<string, ResourceUsage>;
+  /** Total work and cost of the project. */
+  work: number;
+  cost: number;
   warnings: ScheduleWarning[];
 }
 

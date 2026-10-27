@@ -11,7 +11,18 @@ export {
 } from "./calendar.js";
 export { utc, fmt, dayStart, weekday, MS_PER_DAY, MS_PER_MINUTE } from "./time.js";
 export { topologicalOrder } from "./graph.js";
+export { setTaskDuration, setTaskWork, setAssignmentUnits, assignResource, unassignResource } from "./assignments.js";
+export { takeBaseline, clearBaseline } from "./baseline.js";
+export { assignmentWork, assignmentCost } from "./resources.js";
 export type {
+  AssignmentInput,
+  BaselineInput,
+  BaselineTaskValues,
+  ResourceInput,
+  ResourceType,
+  ResourceUsage,
+  ScheduledAssignment,
+  TaskType,
   ConstraintType,
   DependencyInput,
   DependencyType,
