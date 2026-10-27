@@ -27,6 +27,13 @@ the same code runs in the browser (instant feedback while editing) and on the se
   that keep Duration × Units = Work consistent the way MS Project does.
 - **Baselines**: up to eleven snapshots (`takeBaseline`), with start/finish/work/cost variances
   against baseline 0 on every scheduled task.
+- **Tracking**: percent complete, actual start (pins the task) and actual finish (completes it
+  and recomputes its duration), actual/remaining duration and work, stop/resume, rollups to
+  summaries and the project. With a status date and `rescheduleUncompletedWork`, the remaining
+  part of in-progress tasks and the start of unstarted tasks move after the status date, as in
+  MS Project. Completed tasks are never critical.
+- **Earned value** against baseline 0 at the status date: PV, EV, AC (scheduled cost × percent
+  complete until actual costs are tracked), SV, CV, SPI, CPI per task and for the project.
 - **Validation**: duplicate ids, unknown references, dependency cycles (the offending cycle is
   reported), parent/child cycles, assignments to unknown tasks or resources.
 
@@ -68,7 +75,7 @@ from MS Project once the MSPDI package exists:
 
 ## Not yet
 
-Tracking (actual dates, status date, remaining work), resource leveling, earned value,
+Resource leveling, actual cost and actual work entry (today derived from percent complete),
 work contours and timephased data, incremental recomputation. A 10,000-task chain schedules in
 about 200 ms and a 2,000-task project with summaries in about 50 ms; the target is under 100 ms
 for the chain.

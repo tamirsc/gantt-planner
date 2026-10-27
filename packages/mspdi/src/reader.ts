@@ -167,7 +167,11 @@ export function readMspdi(xml: string): MspdiDocument {
       task.calendarId = String(calUid);
     }
     const pct = toInt(raw["PercentComplete"]);
-    if (pct !== undefined) task.percentComplete = pct;
+    if (pct !== undefined && pct > 0) task.percentComplete = pct;
+    const actualStart = parseDateTime(raw["ActualStart"]);
+    if (actualStart !== undefined) task.actualStart = actualStart;
+    const actualFinish = parseDateTime(raw["ActualFinish"]);
+    if (actualFinish !== undefined) task.actualFinish = actualFinish;
     const taskType = TASK_TYPE_FROM_CODE[toInt(raw["Type"]) ?? -1];
     if (taskType && taskType !== "fixedUnits") task.taskType = taskType;
     if (toBool(raw["EffortDriven"])) task.effortDriven = true;
@@ -319,6 +323,8 @@ export function readMspdi(xml: string): MspdiDocument {
       : calendars[0]?.id;
 
   const project: ProjectInput = { start: projectStart, tasks, dependencies };
+  const statusDate = parseDateTime(root["StatusDate"]);
+  if (statusDate !== undefined) project.statusDate = statusDate;
   if (calendars.length > 0) project.calendars = calendars;
   if (resources.length > 0) project.resources = resources;
   if (assignments.length > 0) project.assignments = assignments;

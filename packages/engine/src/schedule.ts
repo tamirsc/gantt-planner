@@ -3,6 +3,7 @@ import { topologicalOrder } from "./graph.js";
 import { computeResources, type TaskDates } from "./resources.js";
 import {
   SchedulingError,
+  type EarnedValue,
   type ConstraintType,
   type DependencyType,
   type ProjectInput,
@@ -52,6 +53,12 @@ interface Node {
   lf: number;
   /** Dates fixed by the user (manual) or pinned (ALAP second pass). */
   pinned: boolean;
+  /** Tracking */
+  pct: number;
+  actualStart: number | undefined;
+  actualFinish: number | undefined;
+  stop: number;
+  resume: number;
 }
 
 /**
@@ -73,6 +80,8 @@ export function schedule(input: ProjectInput): ScheduleResult {
   if (!projectCal) throw new SchedulingError(`Unknown project calendar "${projectCalId}"`, "UNKNOWN_CALENDAR");
   const lagRule = input.options?.lagCalendar ?? "successor";
   const criticalThreshold = input.options?.criticalSlackThreshold ?? 0;
+  const statusDate = input.statusDate;
+  const reschedule = (input.options?.rescheduleUncompletedWork ?? false) && statusDate !== undefined;
 
   // ---- nodes --------------------------------------------------------------
   const inputTask = new Map(input.tasks.map((t) => [t.id, t] as const));
@@ -110,6 +119,11 @@ export function schedule(input: ProjectInput): ScheduleResult {
       ls: NaN,
       lf: NaN,
       pinned: false,
+      pct: Math.max(0, Math.min(100, t.percentComplete ?? 0)),
+      actualStart: t.actualStart,
+      actualFinish: t.actualFinish,
+      stop: NaN,
+      resume: NaN,
     });
   }
   for (const n of nodes.values()) {
@@ -133,6 +147,14 @@ export function schedule(input: ProjectInput): ScheduleResult {
     if (n.mode === "manual" && !n.isSummary) {
       const t = inputTask.get(n.id)!;
       if (t.start === undefined) throw new SchedulingError(`Manual task "${n.id}" requires start`, "INVALID_INPUT");
+    }
+    if (n.isSummary) {
+      n.pct = 0;
+      n.actualStart = undefined;
+      n.actualFinish = undefined;
+    } else if (n.actualFinish !== undefined) {
+      // An actual finish completes the task; the actual start defaults to the scheduled start (set later).
+      n.pct = 100;
     }
   }
 
@@ -228,6 +250,30 @@ export function schedule(input: ProjectInput): ScheduleResult {
 
   const projectStartSnapped = projectCal.nextWorkingTime(input.start);
 
+  /**
+   * Finish of a leaf scheduled at `start`, honouring progress: a completed task ends at its
+   * actual finish; an in-progress task whose completed part ends before the status date has
+   * its remaining part moved after the status date when the option is on.
+   */
+  const finishWithProgress = (n: Node, start: number): number => {
+    if (n.actualFinish !== undefined) {
+      n.stop = n.actualFinish;
+      n.resume = n.actualFinish;
+      return n.actualFinish;
+    }
+    const actualDuration = (n.duration * n.pct) / 100;
+    const remaining = n.duration - actualDuration;
+    const stop = n.duration > 0 && n.pct > 0 ? n.cal.addMinutes(start, actualDuration) : start;
+    n.stop = stop;
+    n.resume = stop;
+    if (reschedule && n.pct > 0 && n.pct < 100 && stop < statusDate!) {
+      const resume = n.cal.nextWorkingTime(statusDate!);
+      n.resume = resume;
+      return remaining > 0 ? n.cal.addMinutes(resume, remaining) : resume;
+    }
+    return finishOf(n, start);
+  };
+
   /** Earliest start imposed on `n` by dependency `d` given the predecessor's current dates. */
   const requiredStart = (n: Node, d: Dep): number => {
     const p = nodes.get(d.pred)!;
@@ -309,6 +355,8 @@ export function schedule(input: ProjectInput): ScheduleResult {
       }
 
       let start = Math.max(projectStartSnapped, depStart);
+      // Unstarted work does not happen before the status date when rescheduling is on.
+      if (reschedule && n.pct === 0 && n.actualStart === undefined) start = Math.max(start, snapStart(n, statusDate!));
       const cd = n.constraintDate;
       if (n.constraint === "SNET") start = Math.max(start, snapStart(n, cd!));
       if (n.constraint === "FNET") start = Math.max(start, startOf(n, snapFinish(n, cd!)));
@@ -351,10 +399,10 @@ export function schedule(input: ProjectInput): ScheduleResult {
         }
       }
       n.s = start;
-      n.f = finishOf(n, start);
+      n.f = finishWithProgress(n, start);
       if (emitWarnings) {
         n.es = Math.max(unforcedStart, start);
-        n.ef = finishOf(n, n.es);
+        n.ef = n.es === start ? n.f : finishWithProgress(n, n.es);
       }
     }
   };
@@ -365,17 +413,35 @@ export function schedule(input: ProjectInput): ScheduleResult {
       `${n.constraint} constraint forces start ${iso(forced)} but predecessors require ${iso(wanted)}.`,
     );
 
-  // Manual tasks are pinned from the start.
+  // Manual tasks and tasks with an actual start are pinned from the start.
   for (const n of nodes.values()) {
-    if (n.mode !== "manual" || n.isSummary) continue;
+    if (n.isSummary) continue;
     const t = inputTask.get(n.id)!;
+    if (n.actualStart !== undefined) {
+      n.s = n.actualStart;
+      if (n.actualFinish !== undefined) {
+        n.duration = Math.max(0, n.cal.workingMinutesBetween(n.s, n.actualFinish));
+      }
+      n.f = finishWithProgress(n, n.s);
+      n.pinned = true;
+      continue;
+    }
+    if (n.actualFinish !== undefined) {
+      // Finished without a recorded start: the actual start is the finish minus the duration.
+      n.s = startOf(n, n.actualFinish);
+      n.actualStart = n.s;
+      n.f = finishWithProgress(n, n.s);
+      n.pinned = true;
+      continue;
+    }
+    if (n.mode !== "manual") continue;
     n.s = t.start!;
     if (t.finish !== undefined) {
       n.f = t.finish;
       n.duration = Math.max(0, n.cal.workingMinutesBetween(n.s, n.f));
       n.isMilestone = n.duration === 0 || (t.isMilestone ?? false);
     } else {
-      n.f = finishOf(n, n.s);
+      n.f = finishWithProgress(n, n.s);
     }
     n.pinned = true;
   }
@@ -471,11 +537,102 @@ export function schedule(input: ProjectInput): ScheduleResult {
   }
   const baseline0 = (input.baselines ?? []).find((b) => b.index === 0);
 
+  // ---- tracking rollups -------------------------------------------------------
+  interface Track {
+    pct: number;
+    actualStart: number | null;
+    actualFinish: number | null;
+    actualDuration: number;
+    remainingDuration: number;
+    actualWork: number;
+    remainingWork: number;
+  }
+  const trackOf = new Map<string, Track>();
+  for (const n of [...orderedNodes].sort((a, b) => b.level - a.level)) {
+    if (!n.isSummary) {
+      const actualDuration = n.actualFinish !== undefined ? n.duration : (n.duration * n.pct) / 100;
+      const work = workOf.get(n.id) ?? 0;
+      const actualStart = n.pct > 0 || n.actualStart !== undefined ? (n.actualStart ?? n.s) : null;
+      trackOf.set(n.id, {
+        pct: n.pct,
+        actualStart,
+        actualFinish: n.actualFinish ?? (n.pct === 100 ? n.f : null),
+        actualDuration,
+        remainingDuration: n.duration - actualDuration,
+        actualWork: (work * n.pct) / 100,
+        remainingWork: work - (work * n.pct) / 100,
+      });
+      continue;
+    }
+    let dur = 0;
+    let act = 0;
+    let actualWork = 0;
+    let remainingWork = 0;
+    let actualStart: number | null = null;
+    let actualFinish: number | null = null;
+    let allDone = n.children.length > 0;
+    for (const c of n.children) {
+      const t = trackOf.get(c)!;
+      const ch = nodes.get(c)!;
+      const d = ch.isSummary ? t.actualDuration + t.remainingDuration : ch.duration;
+      dur += d;
+      act += t.actualDuration;
+      actualWork += t.actualWork;
+      remainingWork += t.remainingWork;
+      if (t.actualStart !== null) actualStart = actualStart === null ? t.actualStart : Math.min(actualStart, t.actualStart);
+      if (t.actualFinish === null) allDone = false;
+      else actualFinish = actualFinish === null ? t.actualFinish : Math.max(actualFinish, t.actualFinish);
+    }
+    trackOf.set(n.id, {
+      pct: dur > 0 ? Math.round((act / dur) * 100 * 100) / 100 : 0,
+      actualStart,
+      actualFinish: allDone ? actualFinish : null,
+      actualDuration: act,
+      remainingDuration: dur - act,
+      actualWork,
+      remainingWork,
+    });
+  }
+
+  const earnedValueOf = (n: Node, cost: number, pct: number): EarnedValue | null => {
+    const bl = baseline0?.tasks[n.id];
+    if (!bl || statusDate === undefined) return null;
+    let fraction: number;
+    if (statusDate <= bl.start) fraction = 0;
+    else if (statusDate >= bl.finish || bl.duration <= 0) fraction = 1;
+    else fraction = Math.min(1, Math.max(0, n.cal.workingMinutesBetween(bl.start, statusDate) / bl.duration));
+    const pv = bl.cost * fraction;
+    const ev = (bl.cost * pct) / 100;
+    const ac = (cost * pct) / 100;
+    return { pv, ev, ac, sv: ev - pv, cv: ev - ac, spi: pv > 0 ? ev / pv : null, cpi: ac > 0 ? ev / ac : null };
+  };
+  const evOf = new Map<string, EarnedValue | null>();
+  for (const n of [...orderedNodes].sort((a, b) => b.level - a.level)) {
+    if (!n.isSummary) {
+      evOf.set(n.id, earnedValueOf(n, costOf.get(n.id) ?? 0, trackOf.get(n.id)!.pct));
+      continue;
+    }
+    let any = false;
+    const sum = { pv: 0, ev: 0, ac: 0 };
+    for (const c of n.children) {
+      const e = evOf.get(c);
+      if (!e) continue;
+      any = true;
+      sum.pv += e.pv;
+      sum.ev += e.ev;
+      sum.ac += e.ac;
+    }
+    evOf.set(n.id, any ? { ...sum, sv: sum.ev - sum.pv, cv: sum.ev - sum.ac, spi: sum.pv > 0 ? sum.ev / sum.pv : null, cpi: sum.ac > 0 ? sum.ev / sum.ac : null } : null);
+  }
+
   // ---- slack, critical path, output -----------------------------------------
   const tasks: Record<string, ScheduledTask> = {};
   const criticalPath: string[] = [];
   let totalWork = 0;
   let totalCost = 0;
+  let totalDuration = 0;
+  let totalActual = 0;
+  const totalEv = { pv: 0, ev: 0, ac: 0, any: false };
   for (const n of orderedNodes) {
     const totalSlack = Math.min(n.cal.workingMinutesBetween(n.es, n.ls), n.cal.workingMinutesBetween(n.ef, n.lf));
     let freeSlack = totalSlack;
@@ -503,7 +660,19 @@ export function schedule(input: ProjectInput): ScheduleResult {
       }
       freeSlack = Math.min(freeSlack, totalSlack);
     }
-    const isCritical = totalSlack <= criticalThreshold;
+    const track = trackOf.get(n.id)!;
+    const isCritical = totalSlack <= criticalThreshold && track.pct < 100;
+    if (n.parentId === null) {
+      totalDuration += n.isSummary ? track.actualDuration + track.remainingDuration : n.duration;
+      totalActual += track.actualDuration;
+      const e = evOf.get(n.id);
+      if (e) {
+        totalEv.any = true;
+        totalEv.pv += e.pv;
+        totalEv.ev += e.ev;
+        totalEv.ac += e.ac;
+      }
+    }
     if (totalSlack < 0) {
       warn("NEGATIVE_SLACK", n.id, `Negative total slack (${totalSlack} min): schedule conflict.`);
     }
@@ -547,6 +716,16 @@ export function schedule(input: ProjectInput): ScheduleResult {
       finishVariance: bl ? n.cal.workingMinutesBetween(bl.finish, n.f) : null,
       workVariance: bl ? work - bl.work : null,
       costVariance: bl ? cost - bl.cost : null,
+      percentComplete: track.pct,
+      actualStart: track.actualStart,
+      actualFinish: track.actualFinish,
+      actualDuration: track.actualDuration,
+      remainingDuration: track.remainingDuration,
+      actualWork: track.actualWork,
+      remainingWork: track.remainingWork,
+      stop: !n.isSummary && track.pct > 0 && track.pct < 100 ? n.stop : null,
+      resume: !n.isSummary && track.pct > 0 && track.pct < 100 ? n.resume : null,
+      earnedValue: evOf.get(n.id) ?? null,
     };
   }
 
@@ -560,6 +739,19 @@ export function schedule(input: ProjectInput): ScheduleResult {
     resources: res.resources,
     work: totalWork,
     cost: totalCost,
+    statusDate: statusDate ?? null,
+    percentComplete: totalDuration > 0 ? Math.round((totalActual / totalDuration) * 100 * 100) / 100 : 0,
+    earnedValue: totalEv.any
+      ? {
+          pv: totalEv.pv,
+          ev: totalEv.ev,
+          ac: totalEv.ac,
+          sv: totalEv.ev - totalEv.pv,
+          cv: totalEv.ev - totalEv.ac,
+          spi: totalEv.pv > 0 ? totalEv.ev / totalEv.pv : null,
+          cpi: totalEv.ac > 0 ? totalEv.ev / totalEv.ac : null,
+        }
+      : null,
     warnings,
   };
 }

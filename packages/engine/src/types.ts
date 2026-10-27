@@ -92,6 +92,10 @@ export interface TaskInput {
   effortDriven?: boolean;
   /** Cost not tied to a resource. */
   fixedCost?: number;
+  /** Tracking: when work actually began. Pins the start like MS Project does. */
+  actualStart?: number;
+  /** Tracking: when work actually ended. Marks the task complete; duration becomes the actual span. */
+  actualFinish?: number;
 }
 
 export interface DependencyInput {
@@ -113,11 +117,19 @@ export interface ScheduleOptions {
   lagCalendar?: LagCalendarRule;
   /** Tasks with total slack ≤ this many minutes are critical. Defaults to 0. */
   criticalSlackThreshold?: number;
+  /**
+   * Tracking: move the remaining part of in-progress tasks, and the start of unstarted
+   * tasks, to after the status date (MS Project's "move remaining parts forward to status
+   * date"). Requires `statusDate`. Defaults to false.
+   */
+  rescheduleUncompletedWork?: boolean;
 }
 
 export interface ProjectInput {
   /** Project start (epoch ms, project time). */
   start: number;
+  /** Tracking: the "as of" date for progress and earned value. */
+  statusDate?: number;
   /** Project calendar id. Defaults to the first calendar in `calendars`, else the Israel standard preset. */
   calendarId?: string;
   calendars?: CalendarDefinition[];
@@ -166,6 +178,32 @@ export interface ScheduledTask {
   finishVariance: number | null;
   workVariance: number | null;
   costVariance: number | null;
+  /** Tracking (summaries roll up). */
+  percentComplete: number;
+  actualStart: number | null;
+  actualFinish: number | null;
+  actualDuration: number;
+  remainingDuration: number;
+  actualWork: number;
+  remainingWork: number;
+  /** In-progress tasks split by the status date: work stops here and resumes at `resume`. */
+  stop: number | null;
+  resume: number | null;
+  /** Earned value against baseline 0 at the status date; null without baseline or status date. */
+  earnedValue: EarnedValue | null;
+}
+
+export interface EarnedValue {
+  /** Planned value (BCWS): baseline cost due by the status date. */
+  pv: number;
+  /** Earned value (BCWP): baseline cost × percent complete. */
+  ev: number;
+  /** Actual cost (ACWP): scheduled cost × percent complete until actual costs are tracked. */
+  ac: number;
+  sv: number;
+  cv: number;
+  spi: number | null;
+  cpi: number | null;
 }
 
 export interface ScheduledAssignment {
@@ -222,6 +260,10 @@ export interface ScheduleResult {
   /** Total work and cost of the project. */
   work: number;
   cost: number;
+  statusDate: number | null;
+  /** Duration-weighted percent complete of the whole project. */
+  percentComplete: number;
+  earnedValue: EarnedValue | null;
   warnings: ScheduleWarning[];
 }
 

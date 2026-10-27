@@ -22,6 +22,7 @@ export type {
   ResourceType,
   ResourceUsage,
   ScheduledAssignment,
+  EarnedValue,
   TaskType,
   ConstraintType,
   DependencyInput,

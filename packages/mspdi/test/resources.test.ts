@@ -93,3 +93,33 @@ describe("resources, assignments and baselines in MSPDI", () => {
     expect(schedule(doc.project).tasks["1"]!.cost).toBe(800);
   });
 });
+
+describe("tracking in MSPDI", () => {
+  it("round-trips the status date, actual dates and percent complete", () => {
+    const p: ProjectInput = {
+      start: utc("2026-11-01"),
+      statusDate: utc("2026-11-05T08:00"),
+      options: { rescheduleUncompletedWork: true },
+      tasks: [
+        { id: "1", name: "A", duration: 2 * D, actualStart: utc("2026-11-01T08:00"), percentComplete: 50 },
+        { id: "2", name: "B", duration: 1 * D, actualStart: utc("2026-11-02T08:00"), actualFinish: utc("2026-11-02T17:00") },
+        { id: "3", name: "C", duration: 1 * D },
+      ],
+      dependencies: [{ predecessorId: "1", successorId: "3" }],
+    };
+    const r1 = schedule(p);
+    const xml = writeMspdi(p, { result: r1 });
+    expect(xml).toContain("<StatusDate>2026-11-05T08:00:00</StatusDate>");
+    expect(xml).toContain("<ActualStart>2026-11-01T08:00:00</ActualStart>");
+    expect(xml).toContain("<ActualFinish>2026-11-02T17:00:00</ActualFinish>");
+    expect(xml).toContain("<Stop>2026-11-01T17:00:00</Stop>");
+    expect(xml).toContain("<Resume>2026-11-05T08:00:00</Resume>");
+    const doc = readMspdi(xml);
+    expect(doc.project.statusDate).toBe(p.statusDate);
+    expect(doc.project.tasks[0]).toMatchObject({ actualStart: p.tasks[0]!.actualStart, percentComplete: 50 });
+    expect(doc.project.tasks[1]).toMatchObject({ actualFinish: p.tasks[1]!.actualFinish, percentComplete: 100 });
+    doc.project.options = p.options;
+    const r2 = schedule(doc.project);
+    for (const id of r1.order) expect([fmt(r2.tasks[id]!.start), fmt(r2.tasks[id]!.finish), r2.tasks[id]!.percentComplete]).toEqual([fmt(r1.tasks[id]!.start), fmt(r1.tasks[id]!.finish), r1.tasks[id]!.percentComplete]);
+  });
+});
