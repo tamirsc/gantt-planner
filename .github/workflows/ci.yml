@@ -45,9 +45,7 @@ jobs:
       - run: pnpm build
       - name: Install Playwright browser
         working-directory: packages/web
-        run: |
-          npm install --no-save playwright@1.49.1
-          npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
       - name: Start server with the built web app
         working-directory: packages/server
         run: |
