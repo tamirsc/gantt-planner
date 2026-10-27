@@ -18,3 +18,16 @@ jobs:
       - run: pnpm build
       - run: pnpm -r typecheck
       - run: pnpm test
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t gantt-planner:ci .
+      - name: Smoke test the image
+        run: |
+          docker run -d --name gp -p 3000:3000 -e COOKIE_SECRET=ci-secret -e PGLITE_DIR=/tmp/pglite gantt-planner:ci
+          for i in $(seq 1 30); do curl -sf localhost:3000/api/health && break; sleep 1; done
+          curl -sf localhost:3000/api/health
+          curl -sf -o /dev/null localhost:3000/
+          docker logs gp | tail -5
