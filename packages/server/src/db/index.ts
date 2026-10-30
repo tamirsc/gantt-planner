@@ -38,8 +38,10 @@ export async function openDb(opts: { databaseUrl?: string | undefined; pgliteDir
 /** Minimal forward-only SQL migrator: applies migrations/*.sql in name order, once each. */
 export async function migrate(db: Db): Promise<void> {
   await db.execute(sql`create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())`);
-  const result = await db.execute(sql`select name from _migrations`);
-  const applied = new Set((result.rows as { name: string }[]).map((r) => String(r.name)));
+  // postgres-js returns the rows array itself; PGlite returns { rows }. Accept both.
+  const result = (await db.execute(sql`select name from _migrations`)) as unknown;
+  const rows = (Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])) as { name: string }[];
+  const applied = new Set(rows.map((r) => String(r.name)));
   for (const file of readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort()) {
     if (applied.has(file)) continue;
     const body = readFileSync(join(migrationsDir, file), "utf8");
