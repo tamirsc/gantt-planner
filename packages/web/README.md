@@ -34,6 +34,21 @@ to them, and the server enforces all of it regardless of the UI.
   optional), as decided in the product overview.
 - **Files**: Import MS Project XML, export XML that MS Project opens directly.
 
+## Resources, baselines and tracking
+
+- **Resource sheet** (toolbar → Resources): name, type (work / material / cost), max units, hourly
+  rate, calendar, computed work and cost; overallocated resources are flagged with the number of
+  days. Unknown names typed into a task's Resources cell become work resources automatically.
+- **Resources column** in MS Project syntax: `Dana[50%]; Contractor; Concrete[10]`; **Work** and
+  **Cost** columns roll up to summaries and to the project total in the toolbar.
+- **Baseline**: Set/Clear baseline in the toolbar; grey baseline bars under each task in the Gantt
+  and Start/Finish variance columns in the grid (late ones in red).
+- **Status date**: a date picker in the toolbar draws the status line in the Gantt; the ⇥ option
+  moves remaining work after the status date. Percent complete rolls up to summaries and the
+  project; with a baseline the toolbar shows SPI and CPI.
+- The grid scrolls horizontally with the #, WBS and name columns pinned; the splitter between grid
+  and Gantt is draggable.
+
 ## Rendering choice
 
 The Gantt is our own SVG renderer rather than a third-party component. It keeps full control over
@@ -55,6 +70,7 @@ pnpm build
 
 ## Not yet
 
-Resources, baselines, Kanban, real-time collaboration (today the last save wins after a conflict
-reload), per-user content translation, e-mail delivery of invitations, column customization,
-printing/PDF, keyboard navigation inside the grid, virtualization.
+Task type and effort-driven controls in the UI, resource usage view (per-day histogram), Kanban,
+real-time collaboration (today the last save wins after a conflict reload), per-user content
+translation, e-mail delivery of invitations, column customization, printing/PDF, keyboard
+navigation inside the grid, virtualization.

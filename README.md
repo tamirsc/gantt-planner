@@ -39,6 +39,7 @@ Node 22 and pnpm 10 are expected.
 4. Server: accounts, organizations, projects, invitations, permissions, audit log, Docker/Railway deployment. ✔ (web app connected: sign-in, project list, autosave, members & permissions; end-to-end test in CI)
 5. Engine depth: resources, assignments, task types, costs, overallocation, baselines, MSPDI support for all of them. ✔
 6. Tracking (actuals, status date, reschedule remaining work) and earned value. ✔
-7. Web app: resources, assignments, baselines, progress and status date in the grid and Gantt. **← now**
-8. Deploy the pilot on Railway; real-time collaboration, comments, Kanban; resource leveling.
+7. Web app: resources, assignments, baselines, progress and status date in the grid and Gantt. ✔
+8. Deploy the pilot on Railway. **← now**
+9. Real-time collaboration, comments, Kanban; resource usage view and leveling.
 5. Per-user content translation, `.mpp` / `.xer` import, reports.

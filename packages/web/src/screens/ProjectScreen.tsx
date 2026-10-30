@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GanttChart } from "../components/GanttChart";
 import { MembersPanel } from "../components/MembersPanel";
+import { ResourceSheet } from "../components/ResourceSheet";
 import { TaskGrid } from "../components/TaskGrid";
 import { Toolbar } from "../components/Toolbar";
 import { t } from "../i18n";
@@ -11,6 +12,25 @@ export function ProjectScreen({ id }: { id: string }) {
   const s = useStore();
   const lang = s.prefs.lang;
   const [showMembers, setShowMembers] = useState(false);
+  const [showResources, setShowResources] = useState(false);
+
+  // Draggable splitter between the grid and the Gantt.
+  const onSplitterDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = s.prefs.gridWidth;
+    const rtl = document.documentElement.dir === "rtl";
+    const move = (ev: PointerEvent) => {
+      const delta = (ev.clientX - startX) * (rtl ? -1 : 1);
+      s.setPrefs({ gridWidth: Math.max(320, Math.min(window.innerWidth - 240, startW + delta)) });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   useEffect(() => {
     void s.openProject(id);
@@ -51,15 +71,27 @@ export function ProjectScreen({ id }: { id: string }) {
   const orgId = s.currentOrgId ?? "";
   return (
     <div className="app">
-      <Toolbar readOnly={readOnly} onMembers={() => setShowMembers((v) => !v)} />
+      <Toolbar
+        readOnly={readOnly}
+        onMembers={() => {
+          setShowResources(false);
+          setShowMembers((v) => !v);
+        }}
+        onResources={() => {
+          setShowMembers(false);
+          setShowResources((v) => !v);
+        }}
+      />
       <main className="main">
-        <div className="grid-pane">
+        <div className="grid-pane" style={{ width: s.prefs.gridWidth }}>
           <TaskGrid rows={rows} readOnly={readOnly} progressOnly={readOnly && s.permissions.updateOwnTasks} />
         </div>
+        <div className="splitter" onPointerDown={onSplitterDown} />
         <div className="gantt-pane" ref={ganttPane}>
           <GanttChart rows={rows} scale={scale} readOnly={readOnly} />
         </div>
         {showMembers && <MembersPanel orgId={orgId} onClose={() => setShowMembers(false)} />}
+        {showResources && <ResourceSheet readOnly={readOnly} onClose={() => setShowResources(false)} />}
       </main>
     </div>
   );

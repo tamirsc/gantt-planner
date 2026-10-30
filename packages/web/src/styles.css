@@ -31,7 +31,9 @@ html, body, #root { height: 100%; margin: 0; }
 
 /* main split */
 .main { flex: 1; display: flex; overflow: auto; min-height: 0; }
-.grid-pane { flex: 0 0 auto; border-inline-end: 2px solid #cbd5e1; }
+.grid-pane { flex: 0 0 auto; overflow-x: auto; overflow-y: hidden; }
+.splitter { flex: 0 0 6px; cursor: col-resize; background: #cbd5e1; }
+.splitter:hover { background: var(--accent); }
 .gantt-pane { flex: 1 1 auto; overflow-x: auto; overflow-y: hidden; direction: ltr; }
 
 /* grid */
@@ -45,6 +47,14 @@ html, body, #root { height: 100%; margin: 0; }
 .grid .c-id { width: 36px; color: var(--muted); text-align: center; }
 .grid .c-wbs { width: 56px; color: var(--muted); }
 .grid .c-name { width: 300px; }
+/* the identifying columns stay visible while the grid scrolls horizontally */
+.grid .c-id, .grid .c-wbs, .grid .c-name { position: sticky; background: #fff; z-index: 1; }
+.grid .c-id { inset-inline-start: 0; }
+.grid .c-wbs { inset-inline-start: 36px; }
+.grid .c-name { inset-inline-start: 92px; box-shadow: 1px 0 0 var(--line); }
+.grid thead .c-id, .grid thead .c-wbs, .grid thead .c-name { z-index: 3; background: var(--header); }
+.grid tbody tr.selected .c-id, .grid tbody tr.selected .c-wbs, .grid tbody tr.selected .c-name { background: var(--selected); }
+.grid tbody tr:hover .c-id, .grid tbody tr:hover .c-wbs, .grid tbody tr:hover .c-name { background: #f8fafc; }
 .grid .c-dur { width: 72px; }
 .grid .c-date { width: 86px; }
 .grid .c-pred { width: 110px; }
@@ -132,3 +142,29 @@ button.link { border: none; background: none; color: var(--accent); }
 .grid .c-assignee { width: 110px; }
 .gantt.readonly .bar rect { cursor: default; }
 .gantt.readonly .link-handle, .gantt.readonly .resize-handle { display: none; }
+
+/* resources, baselines, tracking */
+.grid .c-res { width: 170px; }
+.grid .c-work { width: 64px; }
+.grid .c-cost { width: 72px; }
+.grid .c-var { width: 86px; color: var(--muted); }
+.grid td.c-var.late { color: var(--critical); }
+.panel.wide { width: 860px; max-width: 95vw; }
+.list.resources { table-layout: fixed; }
+.list.resources th:nth-child(1) { width: 26%; }
+.list.resources th:nth-child(2) { width: 12%; }
+.list.resources th:nth-child(3) { width: 11%; }
+.list.resources th:nth-child(4) { width: 11%; }
+.list.resources th:nth-child(5) { width: 18%; }
+.list.resources th:nth-child(6), .list.resources th:nth-child(7) { width: 8%; }
+.list.resources td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.list.resources input[type=text], .list.resources input:not([type]), .list.resources select { width: 100%; }
+.list.resources input, .list.resources select { font: inherit; padding: 3px 6px; border: 1px solid transparent; border-radius: 3px; background: transparent; max-width: 100%; }
+.list.resources input:hover, .list.resources select:hover, .list.resources input:focus { border-color: var(--line); background: #fff; }
+.list.resources input.num { width: 64px; }
+.list.resources tr.overallocated td:first-child { color: #b91c1c; }
+.badge-warn { display: inline-block; margin-inline-start: 6px; font-size: 11px; color: #b91c1c; }
+.gantt .baselines rect, .gantt .baselines polygon { fill: #94a3b8; opacity: 0.8; pointer-events: none; }
+.gantt .status-date line { stroke: #7c3aed; stroke-width: 1.5; stroke-dasharray: 6 3; }
+.gantt .status-date text { font-size: 10px; fill: #6d28d9; }
+.toolbar .check input[type=date] { font: inherit; padding: 2px 4px; border: 1px solid #cbd5e1; border-radius: 4px; }

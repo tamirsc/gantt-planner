@@ -53,6 +53,29 @@ async function shot(page, name) {
   assert.equal(await owner.locator("table.grid tbody tr").nth(1).locator("td.c-dur").innerText(), "5d");
   await shot(owner, "02-project-owner");
 
+  // --- resources: assign by text, open the resource sheet, set a baseline and a status date
+  await row2.locator("td.c-res .cell-text").click();
+  await owner.locator("td.c-res input.cell-input").fill("Dana[50%]; New contractor");
+  await owner.keyboard.press("Enter");
+  await owner.locator(".save-state.saved").waitFor({ timeout: 10000 });
+  assert.equal(await row2.locator("td.c-res .cell-text").innerText(), "Dana[50%]; New contractor");
+  await owner.getByRole("button", { name: "Resources" }).click();
+  await owner.locator(".panel.wide").waitFor();
+  // both names are new (the sample's resources are Hebrew), so two work resources were created on top of the sample's 5
+  assert.equal(await owner.locator(".list.resources tbody tr").count(), 7);
+  await owner.locator(".panel-head button").click();
+  await owner.getByRole("button", { name: "Set baseline" }).click();
+  await owner.locator(".save-state.saved").waitFor({ timeout: 10000 });
+  assert.ok((await owner.locator("svg.gantt .baselines rect").count()) >= 8);
+  assert.equal(await owner.locator("table.grid thead th.c-var").count(), 2);
+  await owner.locator('.toolbar input[type="date"]').fill("2026-11-05");
+  await owner.locator(".save-state.saved").waitFor({ timeout: 10000 });
+  assert.equal(await owner.locator("svg.gantt .status-date line").count(), 1);
+  await owner.reload();
+  await owner.locator("table.grid tbody tr").first().waitFor();
+  assert.equal(await owner.getByRole("button", { name: "Clear baseline" }).count(), 1); // baseline persisted
+  await shot(owner, "02b-resources-baseline");
+
   // --- invite a guest viewer from the members panel
   await owner.getByRole("button", { name: "Members & permissions" }).click();
   await owner.locator(".invite-form input[type=email]").fill(`guest-${uid}@partner.com`);

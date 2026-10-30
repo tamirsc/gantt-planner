@@ -5,6 +5,7 @@ import { t } from "../i18n";
 import { calendarFor } from "../lib/calendars";
 import { fmtDate, fmtDuration, parseDuration } from "../lib/format";
 import { formatPredecessors, parsePredecessors } from "../lib/predecessors";
+import { formatResourceNames } from "../lib/resourceText";
 import { HEADER_HEIGHT, ROW_HEIGHT } from "../lib/timeline";
 import { allRows, useStore, type AppTask } from "../store";
 
@@ -22,6 +23,7 @@ export function TaskGrid({ rows, readOnly, progressOnly }: Props) {
   const order = allRows(s.project);
   const rowNumber = new Map(order.map((id, i) => [id, i + 1] as const));
   const minutesPerDay = calendarFor(s.project).minutesPerDay;
+  const hasBaseline = (s.project.baselines ?? []).some((b) => b.index === 0);
   const depsBySucc = new Map<string, typeof s.project.dependencies>();
   for (const d of s.project.dependencies ?? []) (depsBySucc.get(d.successorId) ?? depsBySucc.set(d.successorId, []).get(d.successorId)!).push(d);
 
@@ -47,9 +49,14 @@ export function TaskGrid({ rows, readOnly, progressOnly }: Props) {
           <th className="c-date">{t(lang, "colStart")}</th>
           <th className="c-date">{t(lang, "colFinish")}</th>
           <th className="c-pred">{t(lang, "colPredecessors")}</th>
+          <th className="c-res">{t(lang, "colResources")}</th>
+          <th className="c-work">{t(lang, "colWork")}</th>
+          <th className="c-cost">{t(lang, "colCost")}</th>
           <th className="c-pct">{t(lang, "colProgress")}</th>
           <th className="c-assignee">{t(lang, "colAssignee")}</th>
           <th className="c-slack">{t(lang, "colSlack")}</th>
+          {hasBaseline && <th className="c-var">{t(lang, "colStartVar")}</th>}
+          {hasBaseline && <th className="c-var">{t(lang, "colFinishVar")}</th>}
         </tr>
       </thead>
       <tbody>
@@ -132,9 +139,26 @@ export function TaskGrid({ rows, readOnly, progressOnly }: Props) {
                   ltr
                 />
               </td>
-              <td className="c-pct">
+              <td className="c-res">
                 {task.isSummary ? (
                   ""
+                ) : (
+                  <EditableCell
+                    value={formatResourceNames(s.project, id)}
+                    placeholder={readOnly ? "" : t(lang, "resourceHint")}
+                    readOnly={readOnly}
+                    ltr
+                    onCommit={(v) => {
+                      if (!s.setTaskResources(id, v)) s.setToast(t(lang, "resourceHint"));
+                    }}
+                  />
+                )}
+              </td>
+              <td className="c-work" dir="ltr">{task.work > 0 ? fmtDuration(task.work, cal.minutesPerDay, lang) : ""}</td>
+              <td className="c-cost" dir="ltr">{task.cost > 0 ? Math.round(task.cost).toLocaleString() : ""}</td>
+              <td className="c-pct">
+                {task.isSummary ? (
+                  <span className="muted">{task.percentComplete > 0 ? `${Math.round(task.percentComplete)}` : ""}</span>
                 ) : (
                   <EditableCell
                     value={String(input.percentComplete ?? 0)}
@@ -171,6 +195,16 @@ export function TaskGrid({ rows, readOnly, progressOnly }: Props) {
               <td className="c-slack" title={`${task.totalSlack} min`}>
                 {fmtDuration(task.totalSlack, cal.minutesPerDay, lang)}
               </td>
+              {hasBaseline && (
+                <td className={"c-var" + ((task.startVariance ?? 0) > 0 ? " late" : "")} dir="ltr">
+                  {task.startVariance !== null ? fmtDuration(task.startVariance, cal.minutesPerDay, lang) : ""}
+                </td>
+              )}
+              {hasBaseline && (
+                <td className={"c-var" + ((task.finishVariance ?? 0) > 0 ? " late" : "")} dir="ltr">
+                  {task.finishVariance !== null ? fmtDuration(task.finishVariance, cal.minutesPerDay, lang) : ""}
+                </td>
+              )}
             </tr>
           );
         })}

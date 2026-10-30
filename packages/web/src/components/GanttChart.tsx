@@ -117,6 +117,8 @@ export function GanttChart({ rows, scale, readOnly }: Props) {
 
   const now = Date.now();
   const todayX = now >= scale.from && now < scale.to ? xOf(scale, now) : null;
+  const statusDate = s.result.statusDate;
+  const statusX = statusDate !== null && statusDate >= scale.from && statusDate < scale.to ? xOf(scale, statusDate) : null;
 
   const barColor = (task: ScheduledTask) => {
     if (task.schedulingMode === "manual") return "#0d9488";
@@ -215,6 +217,31 @@ export function GanttChart({ rows, scale, readOnly }: Props) {
           </text>
         </g>
       )}
+
+      {/* status date */}
+      {statusX !== null && (
+        <g className="status-date">
+          <line x1={statusX} x2={statusX} y1={HEADER_HEIGHT} y2={height} />
+          <text x={statusX + 3 * dir} y={HEADER_HEIGHT + 22} textAnchor={dir > 0 ? "start" : "end"}>
+            {t(lang, "statusDate")}
+          </text>
+        </g>
+      )}
+
+      {/* baseline bars */}
+      <g className="baselines">
+        {rows.map((id, i) => {
+          const task = s.result.tasks[id]!;
+          if (!task.baseline) return null;
+          const y = HEADER_HEIGHT + i * ROW_HEIGHT;
+          if (task.isMilestone) {
+            const cx = xOf(scale, task.baseline.finish);
+            return <polygon key={id} points={`${cx},${y + ROW_HEIGHT - 9} ${cx + 5},${y + ROW_HEIGHT - 4} ${cx},${y + ROW_HEIGHT + 1} ${cx - 5},${y + ROW_HEIGHT - 4}`} />;
+          }
+          const { x, w } = span(scale, task.baseline.start, task.baseline.finish);
+          return <rect key={id} x={x} y={y + ROW_HEIGHT - 7} width={w} height={4} rx={1} />;
+        })}
+      </g>
 
       {/* dependencies */}
       <g className="links">

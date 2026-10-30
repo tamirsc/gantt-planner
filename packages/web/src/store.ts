@@ -1,12 +1,19 @@
 import { create } from "zustand";
 import {
   SchedulingError,
+  assignResource,
+  clearBaseline,
   schedule,
+  setAssignmentUnits,
+  takeBaseline,
+  unassignResource,
   type DependencyInput,
   type ProjectInput,
+  type ResourceInput,
   type ScheduleResult,
   type TaskInput,
 } from "@gantt-planner/engine";
+import { parseResourceNames, resolveResource, unitsFor } from "./lib/resourceText";
 import { ApiError, api, type Me, type MemberRow, type ProjectDetail } from "./api";
 import { t, type Lang } from "./i18n";
 import type { Zoom } from "./lib/timeline";
@@ -35,6 +42,8 @@ interface Prefs {
   timelineRtl: boolean;
   zoom: Zoom;
   highlightCritical: boolean;
+  /** Width of the task grid pane in pixels. */
+  gridWidth: number;
 }
 
 export interface AppState {
@@ -86,6 +95,15 @@ export interface AppState {
   addDependency(dep: DependencyInput): boolean;
   moveTask(id: string, newStartDay: number): void;
   resizeTask(id: string, duration: number): void;
+  /** Resource Names text for a task ("Dana[50%]; Cement[10]"); unknown names create work resources. Returns false on parse error. */
+  setTaskResources(taskId: string, text: string): boolean;
+  addResource(partial?: Partial<ResourceInput>): string;
+  updateResource(id: string, patch: Partial<ResourceInput>): void;
+  deleteResource(id: string): void;
+  setBaseline(index?: number): void;
+  removeBaseline(index?: number): void;
+  setStatusDate(ms: number | undefined): void;
+  setRescheduleUncompleted(on: boolean): void;
   undo(): void;
   redo(): void;
   select(ids: string[]): void;
@@ -95,7 +113,7 @@ export interface AppState {
 }
 
 function loadPrefs(): Prefs {
-  const defaults: Prefs = { lang: "he", timelineRtl: false, zoom: "week", highlightCritical: true };
+  const defaults: Prefs = { lang: "he", timelineRtl: false, zoom: "week", highlightCritical: true, gridWidth: 900 };
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     return raw ? { ...defaults, ...(JSON.parse(raw) as Partial<Prefs>) } : defaults;
@@ -424,6 +442,87 @@ export const useStore = create<AppState>((set, get) => {
       const p = get().project;
       const tasks = p.tasks.map((t) => (t.id === id ? { ...t, duration: Math.max(0, duration) } : t));
       commit({ ...p, tasks });
+    },
+
+    setTaskResources(taskId, text) {
+      const refs = parseResourceNames(text);
+      if (!refs) return false;
+      let p = get().project;
+      const resources = [...(p.resources ?? [])];
+      const wanted = new Map<string, ReturnType<typeof unitsFor>>();
+      for (const ref of refs) {
+        const { resource, created } = resolveResource(resources, ref.name, newId);
+        if (created) resources.push(resource);
+        wanted.set(resource.id, unitsFor(ref, resource));
+      }
+      p = { ...p, resources };
+      // Remove assignments that were dropped, update units of kept ones, add the new ones.
+      for (const a of (p.assignments ?? []).filter((a) => a.taskId === taskId)) {
+        if (!wanted.has(a.resourceId)) p = unassignResource(p, taskId, a.resourceId);
+      }
+      for (const [resourceId, u] of wanted) {
+        const existing = (p.assignments ?? []).find((a) => a.taskId === taskId && a.resourceId === resourceId);
+        const resource = resources.find((r) => r.id === resourceId)!;
+        if (!existing) {
+          p = assignResource(p, taskId, resourceId, u.units ?? 1);
+          const cost = u.cost;
+          if (cost !== undefined) p = { ...p, assignments: (p.assignments ?? []).map((a) => (a.taskId === taskId && a.resourceId === resourceId ? { ...a, cost } : a)) };
+        } else if ((resource.type ?? "work") === "work" && u.units !== undefined && u.units !== (existing.units ?? 1)) {
+          p = setAssignmentUnits(p, taskId, resourceId, u.units);
+        } else if ((resource.type ?? "work") !== "work") {
+          p = { ...p, assignments: (p.assignments ?? []).map((a) => (a === existing ? { ...a, ...u } : a)) };
+        }
+      }
+      return commit(p);
+    },
+
+    addResource(partial = {}) {
+      const p = get().project;
+      const id = partial.id ?? newId();
+      const resource: ResourceInput = { ...partial, id, name: partial.name ?? "" };
+      commit({ ...p, resources: [...(p.resources ?? []), resource] });
+      return id;
+    },
+
+    updateResource(id, patch) {
+      const p = get().project;
+      const resources = (p.resources ?? []).map((r) => {
+        if (r.id !== id) return r;
+        const next: ResourceInput = { ...r, ...patch };
+        for (const k of Object.keys(next) as (keyof ResourceInput)[]) if (next[k] === undefined) delete next[k];
+        return next;
+      });
+      commit({ ...p, resources });
+    },
+
+    deleteResource(id) {
+      const p = get().project;
+      commit({
+        ...p,
+        resources: (p.resources ?? []).filter((r) => r.id !== id),
+        assignments: (p.assignments ?? []).filter((a) => a.resourceId !== id),
+      });
+    },
+
+    setBaseline(index = 0) {
+      const { project, result } = get();
+      commit(takeBaseline(project, result, index));
+    },
+
+    removeBaseline(index = 0) {
+      commit(clearBaseline(get().project, index));
+    },
+
+    setStatusDate(ms) {
+      const p = { ...get().project };
+      if (ms === undefined) delete p.statusDate;
+      else p.statusDate = ms;
+      commit(p);
+    },
+
+    setRescheduleUncompleted(on) {
+      const p = get().project;
+      commit({ ...p, options: { ...(p.options ?? {}), rescheduleUncompletedWork: on } });
     },
 
     undo() {

@@ -2,13 +2,14 @@ import { useRef } from "react";
 import { readMspdi, writeMspdi } from "@gantt-planner/mspdi";
 import { t } from "../i18n";
 import { fmtDate } from "../lib/format";
+import { dayStart, utc } from "@gantt-planner/engine";
 import type { Zoom } from "../lib/timeline";
 import { navigate, pathFor } from "../router";
 import { useStore } from "../store";
 import { api } from "../api";
 import { UserMenu } from "./UserMenu";
 
-export function Toolbar({ readOnly, onMembers }: { readOnly: boolean; onMembers: () => void }) {
+export function Toolbar({ readOnly, onMembers, onResources }: { readOnly: boolean; onMembers: () => void; onResources: () => void }) {
   const s = useStore();
   const lang = s.prefs.lang;
   const fileRef = useRef<HTMLInputElement>(null);
@@ -46,6 +47,8 @@ export function Toolbar({ readOnly, onMembers }: { readOnly: boolean; onMembers:
 
   const sel = s.selected;
   const warnings = s.result.warnings.length;
+  const hasBaseline = (s.project.baselines ?? []).some((b) => b.index === 0);
+  const ev = s.result.earnedValue;
   const saveLabel = { saved: t(lang, "saved"), dirty: t(lang, "unsaved"), saving: t(lang, "saving"), error: t(lang, "saveError"), conflict: t(lang, "conflict") }[s.saveState];
 
   return (
@@ -105,9 +108,36 @@ export function Toolbar({ readOnly, onMembers }: { readOnly: boolean; onMembers:
           }}
         />
         {s.permissions.export && <button onClick={onExport}>{t(lang, "exportXml")}</button>}
+        <button onClick={onResources}>{t(lang, "resources")}</button>
         <button onClick={onMembers}>{t(lang, "members")}</button>
         {s.permissions.delete && <button onClick={() => void onDelete()}>{t(lang, "deleteProject")}</button>}
       </div>
+
+      {!readOnly && (
+        <div className="group">
+          {hasBaseline ? (
+            <button onClick={() => s.removeBaseline(0)} title={t(lang, "clearBaselineBtn")}>
+              {t(lang, "clearBaselineBtn")}
+            </button>
+          ) : (
+            <button onClick={() => s.setBaseline(0)}>{t(lang, "setBaseline")}</button>
+          )}
+          <label className="check" title={t(lang, "statusDate")}>
+            {t(lang, "statusDate")}
+            <input
+              type="date"
+              value={s.project.statusDate !== undefined ? new Date(dayStart(s.project.statusDate)).toISOString().slice(0, 10) : ""}
+              onChange={(e) => s.setStatusDate(e.target.value ? utc(e.target.value) : undefined)}
+            />
+          </label>
+          {s.project.statusDate !== undefined && (
+            <label className="check" title={t(lang, "rescheduleRemaining")}>
+              <input type="checkbox" checked={s.project.options?.rescheduleUncompletedWork ?? false} onChange={(e) => s.setRescheduleUncompleted(e.target.checked)} />
+              ⇥
+            </label>
+          )}
+        </div>
+      )}
 
       <div className="group">
         <select value={s.prefs.zoom} onChange={(e) => s.setPrefs({ zoom: e.target.value as Zoom })}>
@@ -138,6 +168,17 @@ export function Toolbar({ readOnly, onMembers }: { readOnly: boolean; onMembers:
         <span>
           {s.result.criticalPath.length} {t(lang, "critical")}
         </span>
+        {s.result.percentComplete > 0 && <span>{Math.round(s.result.percentComplete)}%</span>}
+        {s.result.cost > 0 && (
+          <span>
+            {t(lang, "colCost")}: <b dir="ltr">{Math.round(s.result.cost).toLocaleString()}</b>
+          </span>
+        )}
+        {ev && ev.spi !== null && (
+          <span className={ev.spi < 0.95 ? "warn" : ""} title={`${t(lang, "earnedValue")}: PV ${Math.round(ev.pv)} · EV ${Math.round(ev.ev)} · AC ${Math.round(ev.ac)}`} dir="ltr">
+            SPI {ev.spi.toFixed(2)}{ev.cpi !== null ? ` · CPI ${ev.cpi.toFixed(2)}` : ""}
+          </span>
+        )}
         {warnings > 0 && (
           <span className="warn" title={s.result.warnings.map((w) => w.message).join("\n")}>
             ⚠ {warnings} {t(lang, "warnings")}
