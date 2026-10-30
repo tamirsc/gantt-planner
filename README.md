@@ -27,7 +27,7 @@ pnpm --filter @gantt-planner/web dev      # run the app on http://localhost:5173
 pnpm --filter @gantt-planner/server dev   # run the API on http://localhost:3000 (embedded database)
 ```
 
-Deployment: the root `Dockerfile` serves API and web app from one container; `railway.json` configures Railway. See `.env.example`.
+Deployment: the root `Dockerfile` serves API and web app from one container. `render.yaml` is a Render Blueprint (service + Postgres + secrets, one click); `railway.json` does the same for Railway. See `.env.example`.
 
 Node 22 and pnpm 10 are expected.
 

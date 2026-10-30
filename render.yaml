@@ -1,0 +1,28 @@
+# Render Blueprint: one-click deployment of the API + web app container and a managed Postgres.
+# Dashboard → New → Blueprint → pick this repository. See docs/project-app-overview.md §8.6.
+services:
+  - type: web
+    name: gantt-planner
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gantt-planner-db
+          property: connectionString
+      - key: COOKIE_SECRET
+        generateValue: true
+
+databases:
+  - name: gantt-planner-db
+    plan: basic-256mb
+    region: frankfurt
+    postgresMajorVersion: "16"
