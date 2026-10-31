@@ -46,7 +46,7 @@ html, body, #root { height: 100%; margin: 0; }
 .main.stacked .gantt .header-bg, .main.stacked .gantt .header { position: sticky; top: 0; }
 
 /* grid */
-.grid { border-collapse: collapse; table-layout: fixed; }
+.grid { border-collapse: collapse; table-layout: fixed; width: max-content; }
 .grid th, .grid td { border-bottom: 1px solid var(--line); border-inline-end: 1px solid var(--line); padding: 0 6px; height: var(--row-h); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: start; }
 .grid thead th { position: sticky; top: 0; z-index: 2; background: var(--header); height: var(--header-h); color: var(--muted); font-weight: 600; }
 .grid tbody tr:hover { background: #f8fafc; }
