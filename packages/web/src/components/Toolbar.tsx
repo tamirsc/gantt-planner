@@ -122,6 +122,16 @@ export function Toolbar({ readOnly, onMembers, onResources }: { readOnly: boolea
           ) : (
             <button onClick={() => s.setBaseline(0)}>{t(lang, "setBaseline")}</button>
           )}
+          <label className="check" title={t(lang, "projectStartField")}>
+            {t(lang, "projectStartField")}
+            <input
+              type="date"
+              value={new Date(dayStart(s.project.start)).toISOString().slice(0, 10)}
+              onChange={(e) => {
+                if (e.target.value) s.setProjectStart(utc(e.target.value));
+              }}
+            />
+          </label>
           <label className="check" title={t(lang, "statusDate")}>
             {t(lang, "statusDate")}
             <input

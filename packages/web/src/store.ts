@@ -103,6 +103,7 @@ export interface AppState {
   setBaseline(index?: number): void;
   removeBaseline(index?: number): void;
   setStatusDate(ms: number | undefined): void;
+  setProjectStart(ms: number): void;
   setRescheduleUncompleted(on: boolean): void;
   undo(): void;
   redo(): void;
@@ -518,6 +519,10 @@ export const useStore = create<AppState>((set, get) => {
       if (ms === undefined) delete p.statusDate;
       else p.statusDate = ms;
       commit(p);
+    },
+
+    setProjectStart(ms) {
+      commit({ ...get().project, start: ms });
     },
 
     setRescheduleUncompleted(on) {
