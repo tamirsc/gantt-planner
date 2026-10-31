@@ -30,11 +30,20 @@ html, body, #root { height: 100%; margin: 0; }
 .toolbar .status .warn { color: #b45309; cursor: help; }
 
 /* main split */
-.main { flex: 1; display: flex; overflow: auto; min-height: 0; }
-.grid-pane { flex: 0 0 auto; overflow-x: auto; overflow-y: hidden; }
-.splitter { flex: 0 0 6px; cursor: col-resize; background: #cbd5e1; }
+.main { flex: 1; display: flex; min-height: 0; }
+.splitter { flex: 0 0 6px; background: #cbd5e1; }
 .splitter:hover { background: var(--accent); }
-.gantt-pane { flex: 1 1 auto; overflow-x: auto; overflow-y: hidden; direction: ltr; }
+/* side-by-side: both panes share one vertical scroller so rows stay aligned */
+.main.side { flex-direction: row; overflow: auto; }
+.main.side .grid-pane { flex: 0 0 auto; overflow-x: auto; overflow-y: hidden; }
+.main.side .splitter { cursor: col-resize; }
+.main.side .gantt-pane { flex: 1 1 auto; overflow-x: auto; overflow-y: hidden; direction: ltr; }
+/* stacked (default): grid above, Gantt below, each with its own scrolling */
+.main.stacked { flex-direction: column; overflow: hidden; }
+.main.stacked .grid-pane { flex: 0 0 auto; width: 100%; overflow: auto; }
+.main.stacked .splitter { cursor: row-resize; width: 100%; }
+.main.stacked .gantt-pane { flex: 1 1 auto; min-height: 0; overflow: auto; direction: ltr; }
+.main.stacked .gantt .header-bg, .main.stacked .gantt .header { position: sticky; top: 0; }
 
 /* grid */
 .grid { border-collapse: collapse; table-layout: fixed; }
@@ -55,7 +64,7 @@ html, body, #root { height: 100%; margin: 0; }
 .grid thead .c-id, .grid thead .c-wbs, .grid thead .c-name { z-index: 3; background: var(--header); }
 .grid tbody tr.selected .c-id, .grid tbody tr.selected .c-wbs, .grid tbody tr.selected .c-name { background: var(--selected); }
 .grid tbody tr:hover .c-id, .grid tbody tr:hover .c-wbs, .grid tbody tr:hover .c-name { background: #f8fafc; }
-.grid .c-dur { width: 72px; }
+.grid .c-dur { width: 92px; }
 .grid .c-date { width: 86px; }
 .grid .c-pred { width: 110px; }
 .grid .c-slack { width: 68px; color: var(--muted); }

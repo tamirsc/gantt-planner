@@ -68,7 +68,7 @@ async function shot(page, name) {
   await owner.locator(".save-state.saved").waitFor({ timeout: 10000 });
   assert.ok((await owner.locator("svg.gantt .baselines rect").count()) >= 8);
   assert.equal(await owner.locator("table.grid thead th.c-var").count(), 2);
-  await owner.locator('.toolbar input[type="date"]').fill("2026-11-05");
+  await owner.locator('.toolbar label[title="Status date"] input[type="date"]').fill("2026-11-05");
   await owner.locator(".save-state.saved").waitFor({ timeout: 10000 });
   assert.equal(await owner.locator("svg.gantt .status-date line").count(), 1);
   await owner.reload();

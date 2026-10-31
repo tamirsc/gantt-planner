@@ -42,8 +42,12 @@ interface Prefs {
   timelineRtl: boolean;
   zoom: Zoom;
   highlightCritical: boolean;
-  /** Width of the task grid pane in pixels. */
+  /** Width of the task grid pane in pixels (side-by-side layout). */
   gridWidth: number;
+  /** "stacked": grid above the Gantt (default); "side": grid beside the Gantt. */
+  layout: "stacked" | "side";
+  /** Height of the task grid pane in pixels (stacked layout). */
+  gridHeight: number;
 }
 
 export interface AppState {
@@ -114,7 +118,7 @@ export interface AppState {
 }
 
 function loadPrefs(): Prefs {
-  const defaults: Prefs = { lang: "he", timelineRtl: false, zoom: "week", highlightCritical: true, gridWidth: 900 };
+  const defaults: Prefs = { lang: "he", timelineRtl: false, zoom: "week", highlightCritical: true, gridWidth: 900, layout: "stacked", gridHeight: 340 };
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     return raw ? { ...defaults, ...(JSON.parse(raw) as Partial<Prefs>) } : defaults;

@@ -150,6 +150,12 @@ export function Toolbar({ readOnly, onMembers, onResources }: { readOnly: boolea
       )}
 
       <div className="group">
+        <button
+          onClick={() => s.setPrefs({ layout: s.prefs.layout === "stacked" ? "side" : "stacked" })}
+          title={s.prefs.layout === "stacked" ? t(lang, "layoutSide") : t(lang, "layoutStacked")}
+        >
+          {s.prefs.layout === "stacked" ? "◫" : "⊟"}
+        </button>
         <select value={s.prefs.zoom} onChange={(e) => s.setPrefs({ zoom: e.target.value as Zoom })}>
           <option value="day">{t(lang, "zoomDay")}</option>
           <option value="week">{t(lang, "zoomWeek")}</option>

@@ -14,13 +14,20 @@ export function ProjectScreen({ id }: { id: string }) {
   const [showMembers, setShowMembers] = useState(false);
   const [showResources, setShowResources] = useState(false);
 
-  // Draggable splitter between the grid and the Gantt.
+  // Draggable splitter between the grid and the Gantt (vertical or horizontal depending on the layout).
+  const stacked = s.prefs.layout === "stacked";
   const onSplitterDown = (e: React.PointerEvent) => {
     e.preventDefault();
     const startX = e.clientX;
+    const startY = e.clientY;
     const startW = s.prefs.gridWidth;
+    const startH = s.prefs.gridHeight;
     const rtl = document.documentElement.dir === "rtl";
     const move = (ev: PointerEvent) => {
+      if (stacked) {
+        s.setPrefs({ gridHeight: Math.max(120, Math.min(window.innerHeight - 220, startH + (ev.clientY - startY))) });
+        return;
+      }
       const delta = (ev.clientX - startX) * (rtl ? -1 : 1);
       s.setPrefs({ gridWidth: Math.max(320, Math.min(window.innerWidth - 240, startW + delta)) });
     };
@@ -62,7 +69,7 @@ export function ProjectScreen({ id }: { id: string }) {
     const el = ganttPane.current;
     if (!el) return;
     el.scrollLeft = s.prefs.timelineRtl ? el.scrollWidth : 0;
-  }, [s.prefs.timelineRtl, s.prefs.zoom, s.projectId]);
+  }, [s.prefs.timelineRtl, s.prefs.zoom, s.projectId, s.prefs.layout]);
 
   if (s.loadError) return <div className="auth-wrap">{s.loadError}</div>;
   if (s.projectId !== id) return <div className="auth-wrap">{t(lang, "loading")}</div>;
@@ -82,11 +89,11 @@ export function ProjectScreen({ id }: { id: string }) {
           setShowResources((v) => !v);
         }}
       />
-      <main className="main">
-        <div className="grid-pane" style={{ width: s.prefs.gridWidth }}>
+      <main className={"main " + (stacked ? "stacked" : "side")}>
+        <div className="grid-pane" style={stacked ? { height: s.prefs.gridHeight } : { width: s.prefs.gridWidth }}>
           <TaskGrid rows={rows} readOnly={readOnly} progressOnly={readOnly && s.permissions.updateOwnTasks} />
         </div>
-        <div className="splitter" onPointerDown={onSplitterDown} />
+        <div className={"splitter " + (stacked ? "horizontal" : "vertical")} onPointerDown={onSplitterDown} />
         <div className="gantt-pane" ref={ganttPane}>
           <GanttChart rows={rows} scale={scale} readOnly={readOnly} />
         </div>
