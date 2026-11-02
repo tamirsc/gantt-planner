@@ -77,7 +77,7 @@ async function shot(page, name) {
   await shot(owner, "02b-resources-baseline");
 
   // --- invite a guest viewer from the members panel
-  await owner.getByRole("button", { name: "Members & permissions" }).click();
+  await owner.getByRole("button", { name: "Share & permissions" }).click();
   await owner.locator(".invite-form input[type=email]").fill(`guest-${uid}@partner.com`);
   await owner.locator(".invite-form select").first().selectOption("guest");
   await owner.locator(".invite-form select").nth(1).selectOption("viewer");
@@ -99,7 +99,9 @@ async function shot(page, name) {
   await guest.goto(`${BASE}/`);
   await guest.locator("table.list tbody tr").first().waitFor();
   assert.equal(await guest.locator("table.list tbody tr").count(), 1);
-  assert.equal(await guest.getByRole("button", { name: "Organization admin" }).count(), 0);
+  await guest.locator(".user-button").click();
+  assert.equal(await guest.getByRole("menuitem", { name: "Organization admin" }).count(), 0);
+  await guest.keyboard.press("Escape");
   await shot(guest, "04-guest-readonly");
 
   // --- contributor: assigned task progress is editable, nothing else
@@ -144,7 +146,8 @@ async function shot(page, name) {
   await shot(owner, "06-org-admin");
 
   // --- sign out redirects to login; the project is no longer reachable
-  await owner.getByRole("button", { name: "Sign out" }).click();
+  await owner.locator(".user-button").click();
+  await owner.getByRole("menuitem", { name: "Sign out" }).click();
   await owner.waitForURL(`${BASE}/login`);
   await owner.goto(projectUrl);
   await owner.waitForURL(`${BASE}/login`);

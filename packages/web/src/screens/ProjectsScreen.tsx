@@ -16,8 +16,7 @@ export function ProjectsScreen() {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [name, setName] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
-  const isAdmin = org?.role === "owner" || org?.role === "admin";
-  const canCreate = isAdmin || org?.role === "member";
+  const canCreate = org?.role === "owner" || org?.role === "admin" || org?.role === "member";
 
   const reload = () => {
     if (!orgId) return;
@@ -62,9 +61,6 @@ export function ProjectsScreen() {
           ) : (
             <span className="muted" dir="auto">{org?.name}</span>
           )}
-        </div>
-        <div className="group">
-          {isAdmin && <button onClick={() => navigate(pathFor.members())}>{t(lang, "orgMembers")}</button>}
         </div>
         <UserMenu />
       </header>
