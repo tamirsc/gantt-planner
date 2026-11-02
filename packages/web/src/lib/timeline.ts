@@ -16,11 +16,11 @@ export interface Scale {
   rtl: boolean;
 }
 
-export function makeScale(projectStart: number, projectFinish: number, zoom: Zoom, rtl: boolean): Scale {
+export function makeScale(projectStart: number, projectFinish: number, zoom: Zoom, rtl: boolean, minWidthPx = 0): Scale {
   const pxPerDay = PX_PER_DAY[zoom];
   const pad = zoom === "day" ? 3 : zoom === "week" ? 7 : 30;
   const from = dayStart(projectStart) - pad * MS_PER_DAY;
-  const minSpan = zoom === "day" ? 28 : zoom === "week" ? 84 : 365;
+  const minSpan = Math.max(zoom === "day" ? 28 : zoom === "week" ? 84 : 365, Math.ceil(minWidthPx / pxPerDay));
   const span = Math.max(minSpan, Math.ceil((projectFinish - from) / MS_PER_DAY) + pad * 2);
   const to = from + span * MS_PER_DAY;
   return { from, to, pxPerDay, width: span * pxPerDay, rtl };

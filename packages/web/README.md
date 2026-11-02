@@ -30,8 +30,9 @@ to them, and the server enforces all of it regardless of the UI.
   rejected with a message. Undo/redo (Ctrl+Z / Ctrl+Y), Delete and Insert keys, autosave to
   localStorage.
 - **Bilingual**: Hebrew (RTL UI) and English (LTR UI) switchable at any time; task names render
-  with correct bidi in both. The timeline direction is a separate preference (LTR by default, RTL
-  optional), as decided in the product overview.
+  with correct bidi in both. The time axis follows the UI language by default (Hebrew: project
+  start at the right edge) and can be flipped from the toolbar; the chart always fills the pane.
+- **Layouts**: grid above the Gantt (default) or side by side, with a draggable splitter.
 - **Files**: Import MS Project XML, export XML that MS Project opens directly.
 
 ## Resources, baselines and tracking

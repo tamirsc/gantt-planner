@@ -5,7 +5,7 @@ import { fmtDate } from "../lib/format";
 import { dayStart, utc } from "@gantt-planner/engine";
 import type { Zoom } from "../lib/timeline";
 import { navigate, pathFor } from "../router";
-import { useStore } from "../store";
+import { timelineIsRtl, useStore } from "../store";
 import { api } from "../api";
 import { UserMenu } from "./UserMenu";
 
@@ -166,7 +166,7 @@ export function Toolbar({ readOnly, onMembers, onResources }: { readOnly: boolea
           {t(lang, "showCritical")}
         </label>
         <label className="check" title={t(lang, "timelineDir")}>
-          <input type="checkbox" checked={s.prefs.timelineRtl} onChange={(e) => s.setPrefs({ timelineRtl: e.target.checked })} />
+          <input type="checkbox" checked={timelineIsRtl(s.prefs)} onChange={(e) => s.setPrefs({ timelineRtl: e.target.checked })} />
           RTL ⟵
         </label>
       </div>

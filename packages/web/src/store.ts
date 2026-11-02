@@ -39,7 +39,8 @@ export interface Permissions {
 
 interface Prefs {
   lang: Lang;
-  timelineRtl: boolean;
+  /** Time axis direction: "auto" follows the UI language (Hebrew → right-to-left). */
+  timelineRtl: boolean | "auto";
   zoom: Zoom;
   highlightCritical: boolean;
   /** Width of the task grid pane in pixels (side-by-side layout). */
@@ -118,7 +119,7 @@ export interface AppState {
 }
 
 function loadPrefs(): Prefs {
-  const defaults: Prefs = { lang: "he", timelineRtl: false, zoom: "week", highlightCritical: true, gridWidth: 900, layout: "stacked", gridHeight: 340 };
+  const defaults: Prefs = { lang: "he", timelineRtl: "auto", zoom: "week", highlightCritical: true, gridWidth: 900, layout: "stacked", gridHeight: 340 };
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     return raw ? { ...defaults, ...(JSON.parse(raw) as Partial<Prefs>) } : defaults;
@@ -576,6 +577,11 @@ export const useStore = create<AppState>((set, get) => {
     },
   };
 });
+
+/** Effective time-axis direction for the current preferences. */
+export function timelineIsRtl(prefs: Prefs): boolean {
+  return prefs.timelineRtl === "auto" ? prefs.lang === "he" : prefs.timelineRtl;
+}
 
 /** Visible rows in outline order, honouring collapsed summaries. */
 export function visibleRows(result: ScheduleResult, project: ProjectInput, collapsed: Set<string>): string[] {

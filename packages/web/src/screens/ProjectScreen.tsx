@@ -6,7 +6,7 @@ import { TaskGrid } from "../components/TaskGrid";
 import { Toolbar } from "../components/Toolbar";
 import { t } from "../i18n";
 import { makeScale } from "../lib/timeline";
-import { useStore, visibleRows } from "../store";
+import { timelineIsRtl, useStore, visibleRows } from "../store";
 
 export function ProjectScreen({ id }: { id: string }) {
   const s = useStore();
@@ -60,16 +60,27 @@ export function ProjectScreen({ id }: { id: string }) {
     }
     return max;
   }, [s.result.projectFinish, s.project.tasks]);
-  const scale = useMemo(
-    () => makeScale(s.result.projectStart, lastDate, s.prefs.zoom, s.prefs.timelineRtl),
-    [s.result.projectStart, lastDate, s.prefs.zoom, s.prefs.timelineRtl],
-  );
+  const timelineRtl = timelineIsRtl(s.prefs);
   const ganttPane = useRef<HTMLDivElement>(null);
+  const [paneWidth, setPaneWidth] = useState(0);
   useEffect(() => {
     const el = ganttPane.current;
     if (!el) return;
-    el.scrollLeft = s.prefs.timelineRtl ? el.scrollWidth : 0;
-  }, [s.prefs.timelineRtl, s.prefs.zoom, s.projectId, s.prefs.layout]);
+    const ro = new ResizeObserver(() => setPaneWidth(el.clientWidth));
+    ro.observe(el);
+    setPaneWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, [s.projectId, s.prefs.layout]);
+  const scale = useMemo(
+    () => makeScale(s.result.projectStart, lastDate, s.prefs.zoom, timelineRtl, paneWidth),
+    [s.result.projectStart, lastDate, s.prefs.zoom, timelineRtl, paneWidth],
+  );
+  // Keep the project start in view: left edge for a left-to-right axis, right edge for right-to-left.
+  useEffect(() => {
+    const el = ganttPane.current;
+    if (!el) return;
+    el.scrollLeft = timelineRtl ? el.scrollWidth : 0;
+  }, [timelineRtl, s.prefs.zoom, s.projectId, s.prefs.layout, paneWidth]);
 
   if (s.loadError) return <div className="auth-wrap">{s.loadError}</div>;
   if (s.projectId !== id) return <div className="auth-wrap">{t(lang, "loading")}</div>;
