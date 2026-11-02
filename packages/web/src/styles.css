@@ -186,3 +186,7 @@ button.link { border: none; background: none; color: var(--accent); }
 .gantt .status-date line { stroke: #7c3aed; stroke-width: 1.5; stroke-dasharray: 6 3; }
 .gantt .status-date text { font-size: 10px; fill: #6d28d9; }
 .toolbar .check input[type=date] { font: inherit; padding: 2px 4px; border: 1px solid #cbd5e1; border-radius: 4px; }
+
+.menu-field { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 10px; font-size: 13px; }
+.menu-field select, .lang-select { font: inherit; padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; }
+.auth-card .lang-select { align-self: flex-start; }

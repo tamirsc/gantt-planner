@@ -35,7 +35,7 @@ export function invitationRoutes(app: FastifyInstance, db: Db): void {
   app.post<{ Params: { token: string } }>("/api/invitations/:token/accept", async (request, reply) => {
     const inv = await load(request.params.token);
     const body = z
-      .object({ name: z.string().min(1).max(100).optional(), password: z.string().min(8).max(200).optional(), locale: z.enum(["he", "en"]).optional() })
+      .object({ name: z.string().min(1).max(100).optional(), password: z.string().min(8).max(200).optional(), locale: z.enum(["he", "en", "de", "it"]).optional() })
       .parse(request.body ?? {});
     let [user] = await db.select().from(users).where(eq(users.email, inv.email)).limit(1);
     if (request.user && request.user.email !== inv.email) throw new HttpError(403, "Invitation was sent to a different e-mail", "FORBIDDEN");

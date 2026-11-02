@@ -12,7 +12,7 @@ const signupSchema = z.object({
   name: z.string().min(1).max(100),
   password: z.string().min(8).max(200),
   orgName: z.string().min(1).max(100),
-  locale: z.enum(["he", "en"]).optional(),
+  locale: z.enum(["he", "en", "de", "it"]).optional(),
 });
 const loginSchema = z.object({ email: z.string().email(), password: z.string() });
 
@@ -47,6 +47,17 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
   app.post("/api/auth/logout", async (request, reply) => {
     await destroySession(db, request, reply);
     return { ok: true };
+  });
+
+  app.patch("/api/me", async (request) => {
+    const user = requireUser(request);
+    const body = z.object({ name: z.string().min(1).max(100).optional(), locale: z.enum(["he", "en", "de", "it"]).optional() }).parse(request.body);
+    const patch: Partial<{ name: string; locale: string }> = {};
+    if (body.name !== undefined) patch.name = body.name;
+    if (body.locale !== undefined) patch.locale = body.locale;
+    if (Object.keys(patch).length > 0) await db.update(users).set(patch).where(eq(users.id, user.id));
+    const [updated] = await db.select().from(users).where(eq(users.id, user.id));
+    return { user: publicUser(updated!) };
   });
 
   app.get("/api/me", async (request) => {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { t } from "../i18n";
+import { LANGS, LANG_NAMES, t, type Lang } from "../i18n";
 import { navigate, pathFor } from "../router";
 import { useStore } from "../store";
 
@@ -68,9 +68,13 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" }) {
         >
           {mode === "signup" ? t(lang, "haveAccount") : t(lang, "noAccount")}
         </a>
-        <button type="button" className="link" onClick={() => s.setPrefs({ lang: lang === "he" ? "en" : "he" })}>
-          {t(lang, "language")}
-        </button>
+        <select className="lang-select" value={lang} onChange={(e) => s.setPrefs({ lang: e.target.value as Lang })} aria-label={t(lang, "language")}>
+          {LANGS.map((l) => (
+            <option key={l} value={l}>
+              {LANG_NAMES[l]}
+            </option>
+          ))}
+        </select>
       </form>
     </div>
   );

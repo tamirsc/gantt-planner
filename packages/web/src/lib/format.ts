@@ -40,6 +40,8 @@ export function fmtDuration(minutes: number, minutesPerDay: number, lang: Lang):
   const days = minutes / minutesPerDay;
   const rounded = Math.round(days * 100) / 100;
   if (lang === "he") return `${rounded} ${Math.abs(rounded) === 1 ? "יום" : "ימים"}`;
+  if (lang === "de") return `${rounded} T`;
+  if (lang === "it") return `${rounded} g`;
   return `${rounded}d`;
 }
 
@@ -50,11 +52,13 @@ export function parseDuration(text: string, minutesPerDay: number): number | und
   const n = Number(m[1]!.replace(",", "."));
   if (!Number.isFinite(n) || n < 0) return undefined;
   const unit = (m[2] ?? "").toLowerCase();
-  if (unit === "" || unit === "d" || unit === "day" || unit === "days" || unit === "י'" || unit === "י" || unit === "ימים" || unit === "יום") {
-    return Math.round(n * minutesPerDay);
-  }
-  if (unit === "h" || unit === "hr" || unit === "hours" || unit === "ש" || unit === "ש'" || unit === "שעות") return Math.round(n * 60);
-  if (unit === "m" || unit === "min" || unit === "דק" || unit === "דקות") return Math.round(n);
-  if (unit === "w" || unit === "wk" || unit === "weeks" || unit === "שב" || unit === "שבועות") return Math.round(n * minutesPerDay * 5);
+  const dayUnits = ["", "d", "day", "days", "י'", "י", "ימים", "יום", "t", "tag", "tage", "g", "gg", "giorno", "giorni"];
+  const hourUnits = ["h", "hr", "hours", "ש", "ש'", "שעות", "std", "std.", "stunden", "ore", "ora"];
+  const minuteUnits = ["m", "min", "דק", "דקות", "minuten", "minuti"];
+  const weekUnits = ["w", "wk", "weeks", "שב", "שבועות", "wo", "woche", "wochen", "sett", "settimana", "settimane"];
+  if (dayUnits.includes(unit)) return Math.round(n * minutesPerDay);
+  if (hourUnits.includes(unit)) return Math.round(n * 60);
+  if (minuteUnits.includes(unit)) return Math.round(n);
+  if (weekUnits.includes(unit)) return Math.round(n * minutesPerDay * 5);
   return undefined;
 }

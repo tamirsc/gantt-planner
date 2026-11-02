@@ -29,9 +29,11 @@ to them, and the server enforces all of it regardless of the UI.
 - **Editing model**: every change goes through the engine; a change that would create a cycle is
   rejected with a message. Undo/redo (Ctrl+Z / Ctrl+Y), Delete and Insert keys, autosave to
   localStorage.
-- **Bilingual**: Hebrew (RTL UI) and English (LTR UI) switchable at any time; task names render
-  with correct bidi in both. The time axis follows the UI language by default (Hebrew: project
-  start at the right edge) and can be flipped from the toolbar; the chart always fills the pane.
+- **Multilingual UI**: Hebrew (RTL), English, German and Italian, chosen from the user menu and
+  stored on the account; task names render with correct bidi everywhere. The time axis follows
+  the UI language by default (Hebrew: project start at the right edge) and can be flipped from
+  the toolbar; the chart always fills the pane. Adding a language means adding one block of
+  strings in `src/i18n.ts`; the build fails if a key is missing.
 - **Layouts**: grid above the Gantt (default) or side by side, with a draggable splitter.
 - **Files**: Import MS Project XML, export XML that MS Project opens directly.
 

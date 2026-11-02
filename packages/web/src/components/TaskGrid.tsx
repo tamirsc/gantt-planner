@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ScheduledTask } from "@gantt-planner/engine";
 import { dayStart, utc } from "@gantt-planner/engine";
-import { t } from "../i18n";
+import { t, type Lang } from "../i18n";
 import { calendarFor } from "../lib/calendars";
 import { fmtDate, fmtDuration, parseDuration } from "../lib/format";
 import { formatPredecessors, parsePredecessors } from "../lib/predecessors";
@@ -213,7 +213,7 @@ export function TaskGrid({ rows, readOnly, progressOnly }: Props) {
   );
 }
 
-function constraintTitle(task: ScheduledTask, date: number | undefined, lang: "he" | "en"): string {
+function constraintTitle(task: ScheduledTask, date: number | undefined, lang: Lang): string {
   if (task.constraintType === "ASAP") return "";
   return `${task.constraintType}${date !== undefined ? " " + fmtDate(lang, date) : ""}`;
 }
@@ -277,7 +277,7 @@ function EditableCell({
   );
 }
 
-function DateCell({ value, lang, title, onCommit, readOnly }: { value: number; lang: "he" | "en"; title: string; onCommit: (ms: number) => void; readOnly?: boolean }) {
+function DateCell({ value, lang, title, onCommit, readOnly }: { value: number; lang: Lang; title: string; onCommit: (ms: number) => void; readOnly?: boolean }) {
   const [editing, setEditing] = useState(false);
   if (!editing) {
     return (

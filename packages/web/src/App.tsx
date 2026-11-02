@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { t } from "./i18n";
+import { RTL_LANGS, t } from "./i18n";
 import { navigate, pathFor, useRoute } from "./router";
 import { AuthScreen } from "./screens/AuthScreen";
 import { InviteScreen } from "./screens/InviteScreen";
@@ -15,7 +15,7 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.lang = lang;
-    document.documentElement.dir = lang === "he" ? "rtl" : "ltr";
+    document.documentElement.dir = RTL_LANGS.has(lang) ? "rtl" : "ltr";
   }, [lang]);
 
   useEffect(() => {

@@ -70,6 +70,7 @@ export const api = {
   signup: (b: { email: string; name: string; password: string; orgName: string; locale: string }) => call<{ user: Me["user"]; org: { id: string } }>("POST", "/api/auth/signup", b),
   login: (b: { email: string; password: string }) => call<{ user: Me["user"] }>("POST", "/api/auth/login", b),
   logout: () => call<{ ok: true }>("POST", "/api/auth/logout"),
+  updateMe: (b: { name?: string; locale?: string }) => call<{ user: Me["user"] }>("PATCH", "/api/me", b),
 
   listProjects: (orgId: string) => call<ProjectSummary[]>("GET", `/api/orgs/${orgId}/projects`),
   createProject: (orgId: string, b: { name: string; data?: ProjectInput }) => call<ProjectDetail>("POST", `/api/orgs/${orgId}/projects`, b),

@@ -15,7 +15,7 @@ import {
 } from "@gantt-planner/engine";
 import { parseResourceNames, resolveResource, unitsFor } from "./lib/resourceText";
 import { ApiError, api, type Me, type MemberRow, type ProjectDetail } from "./api";
-import { t, type Lang } from "./i18n";
+import { RTL_LANGS, isLang, t, type Lang } from "./i18n";
 import type { Zoom } from "./lib/timeline";
 
 const PREFS_KEY = "gantt-planner.prefs.v1";
@@ -122,7 +122,11 @@ function loadPrefs(): Prefs {
   const defaults: Prefs = { lang: "he", timelineRtl: "auto", zoom: "week", highlightCritical: true, gridWidth: 900, layout: "stacked", gridHeight: 340 };
   try {
     const raw = localStorage.getItem(PREFS_KEY);
-    return raw ? { ...defaults, ...(JSON.parse(raw) as Partial<Prefs>) } : defaults;
+    const stored = raw ? (JSON.parse(raw) as Partial<Prefs>) : {};
+    // Older versions stored the axis direction as a plain boolean; the axis now follows the language.
+    if (typeof stored.timelineRtl === "boolean") stored.timelineRtl = "auto";
+    if (!isLang(stored.lang)) delete stored.lang;
+    return { ...defaults, ...stored };
   } catch {
     return defaults;
   }
@@ -238,7 +242,7 @@ export const useStore = create<AppState>((set, get) => {
         const current = get().currentOrgId;
         const orgId = current && me.orgs.some((o) => o.id === current) ? current : (me.orgs[0]?.id ?? null);
         set({ session: me, currentOrgId: orgId });
-        if (me.user.locale === "he" || me.user.locale === "en") get().setPrefs({ lang: me.user.locale });
+        if (isLang(me.user.locale) && me.user.locale !== get().prefs.lang) get().setPrefs({ lang: me.user.locale });
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) set({ session: null, currentOrgId: null });
         else set({ session: null, toast: (e as Error).message });
@@ -563,8 +567,18 @@ export const useStore = create<AppState>((set, get) => {
     },
 
     setPrefs(patch) {
-      const prefs = { ...get().prefs, ...patch };
+      // Switching language resets the axis direction to that language's default.
+      const reset = patch.lang !== undefined && patch.lang !== get().prefs.lang ? { timelineRtl: "auto" as const } : {};
+      const prefs = { ...get().prefs, ...reset, ...patch };
       set({ prefs });
+      // The UI language is part of the account, so it follows the user to other devices.
+      if (patch.lang !== undefined && get().session && get().session!.user.locale !== patch.lang) {
+        const lang = patch.lang;
+        api.updateMe({ locale: lang }).then(
+          (r) => set((st) => (st.session ? { session: { ...st.session, user: r.user } } : {})),
+          () => undefined,
+        );
+      }
       try {
         localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
       } catch {
@@ -580,7 +594,7 @@ export const useStore = create<AppState>((set, get) => {
 
 /** Effective time-axis direction for the current preferences. */
 export function timelineIsRtl(prefs: Prefs): boolean {
-  return prefs.timelineRtl === "auto" ? prefs.lang === "he" : prefs.timelineRtl;
+  return prefs.timelineRtl === "auto" ? RTL_LANGS.has(prefs.lang) : prefs.timelineRtl;
 }
 
 /** Visible rows in outline order, honouring collapsed summaries. */

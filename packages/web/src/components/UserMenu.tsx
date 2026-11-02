@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { roleLabel, t } from "../i18n";
+import { LANGS, LANG_NAMES, roleLabel, t, type Lang } from "../i18n";
 import { navigate, pathFor } from "../router";
 import { useStore } from "../store";
 
@@ -57,9 +57,16 @@ export function UserMenu() {
               </div>
             )}
           </div>
-          <button role="menuitem" onClick={() => { s.setPrefs({ lang: lang === "he" ? "en" : "he" }); setOpen(false); }}>
-            {t(lang, "language")}
-          </button>
+          <label className="menu-field">
+            <span>{t(lang, "language")}</span>
+            <select value={lang} onChange={(e) => s.setPrefs({ lang: e.target.value as Lang })}>
+              {LANGS.map((l) => (
+                <option key={l} value={l}>
+                  {LANG_NAMES[l]}
+                </option>
+              ))}
+            </select>
+          </label>
           {isAdmin && (
             <button role="menuitem" onClick={() => { setOpen(false); navigate(pathFor.members()); }}>
               {t(lang, "orgMembers")}
