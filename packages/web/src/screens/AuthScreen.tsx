@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import { LANGS, LANG_NAMES, t, type Lang } from "../i18n";
-import { navigate, pathFor } from "../router";
+import { navigate, nextPath, pathFor } from "../router";
 import { useStore } from "../store";
 
 export function AuthScreen({ mode }: { mode: "login" | "signup" }) {
@@ -18,11 +18,13 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" }) {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    // Read the destination now: once the session is set, the app's own redirect may change the URL.
+    const next = nextPath() ?? pathFor.projects();
     try {
       if (mode === "signup") await api.signup({ email, name, password, orgName, locale: lang });
       else await api.login({ email, password });
       await s.refreshSession();
-      navigate(pathFor.projects(), true);
+      if (location.pathname === "/login" || location.pathname === "/signup") navigate(next, true);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -60,10 +62,11 @@ export function AuthScreen({ mode }: { mode: "login" | "signup" }) {
           {mode === "signup" ? t(lang, "createAccount") : t(lang, "login")}
         </button>
         <a
-          href={mode === "signup" ? pathFor.login() : pathFor.signup()}
+          href={mode === "signup" ? pathFor.login(nextPath() ?? undefined) : pathFor.signup(nextPath() ?? undefined)}
           onClick={(e) => {
             e.preventDefault();
-            navigate(mode === "signup" ? pathFor.login() : pathFor.signup());
+            const next = nextPath() ?? undefined;
+            navigate(mode === "signup" ? pathFor.login(next) : pathFor.signup(next));
           }}
         >
           {mode === "signup" ? t(lang, "haveAccount") : t(lang, "noAccount")}

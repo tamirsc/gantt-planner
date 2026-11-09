@@ -39,11 +39,17 @@ export function useRoute(): Route {
   return parse(path);
 }
 
+/** Where to go after signing in: a same-site path from ?next=, if present. */
+export function nextPath(): string | null {
+  const next = new URLSearchParams(location.search).get("next");
+  return next && next.startsWith("/") && !next.startsWith("//") ? next : null;
+}
+
 export const pathFor = {
   projects: () => "/",
   project: (id: string) => `/projects/${id}`,
   members: () => "/members",
   invite: (token: string) => `/invite/${token}`,
-  login: () => "/login",
-  signup: () => "/signup",
+  login: (next?: string) => (next ? `/login?next=${encodeURIComponent(next)}` : "/login"),
+  signup: (next?: string) => (next ? `/signup?next=${encodeURIComponent(next)}` : "/signup"),
 };

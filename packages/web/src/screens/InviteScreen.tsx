@@ -63,7 +63,7 @@ export function InviteScreen({ token }: { token: string }) {
         )}
         {info.accountExists && !s.session && (
           <p className="muted">
-            <a href={pathFor.login()} onClick={(e) => { e.preventDefault(); navigate(pathFor.login()); }}>{t(lang, "login")}</a>
+            <a href={pathFor.login(pathFor.invite(token))} onClick={(e) => { e.preventDefault(); navigate(pathFor.login(pathFor.invite(token))); }}>{t(lang, "login")}</a>
           </p>
         )}
         {error && <div className="form-error">{error}</div>}

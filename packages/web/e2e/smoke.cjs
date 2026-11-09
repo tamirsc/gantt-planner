@@ -152,6 +152,111 @@ async function shot(page, name) {
   await owner.goto(projectUrl);
   await owner.waitForURL(`${BASE}/login`);
 
+
+  // ===== Regression checks for state-handling bugs =====
+  const signUp = async (page, email, org) => {
+    await page.goto(`${BASE}/signup`);
+    await page.getByLabel("Full name").fill(email.split("@")[0]);
+    await page.getByLabel("Organization name").fill(org);
+    await page.getByLabel("E-mail").fill(email);
+    await page.getByLabel("Password").fill("secret-pass-9");
+    await page.getByRole("button", { name: "Create account and organization" }).click();
+    await page.waitForURL(`${BASE}/`);
+  };
+  const pm = await newPage();
+  await signUp(pm, `pm2-${uid}@example.com`, "Regression Org");
+  await pm.getByRole("button", { name: "Sample project" }).click();
+  await pm.waitForURL(/\/projects\//);
+  await pm.locator("table.grid tbody tr").first().waitFor();
+  const pmProjectUrl = pm.url();
+
+  // 1. While a project loads, the editor shows "Loading…", not an empty read-only project.
+  await pm.route("**/api/projects/*", async (route) => {
+    if (route.request().method() === "GET") await new Promise((r) => setTimeout(r, 3000));
+    await route.continue();
+  });
+  const meLoaded = pm.waitForResponse((r) => r.url().endsWith("/api/me"));
+  await pm.reload();
+  await meLoaded; // the session is known; only the project is still loading
+  await pm.waitForTimeout(500);
+  assert.equal(await pm.getByText("Loading…").count(), 1);
+  assert.equal(await pm.locator(".save-state").count(), 0); // previously: an empty editor marked "Read only"
+  await pm.locator("table.grid tbody tr").first().waitFor();
+  await pm.unroute("**/api/projects/*");
+
+  // 2. An edit made while a slow save is in flight is saved too, without a self-conflict.
+  const putStatuses = [];
+  pm.on("response", (r) => { if (r.request().method() === "PUT") putStatuses.push(r.status()); });
+  await pm.route("**/api/projects/*", async (route) => {
+    if (route.request().method() === "PUT") await new Promise((r) => setTimeout(r, 2000));
+    await route.continue();
+  });
+  const editDuration = async (row, value) => {
+    await pm.locator("table.grid tbody tr").nth(row).locator("td.c-dur .cell-text").click();
+    await pm.locator("td.c-dur input.cell-input").fill(value);
+    await pm.keyboard.press("Enter");
+  };
+  await editDuration(1, "6d");
+  await pm.waitForTimeout(1200); // first save is in flight
+  await editDuration(2, "7d");
+  await pm.locator(".save-state.saved").waitFor({ timeout: 15000 });
+  await pm.unroute("**/api/projects/*");
+  assert.ok(putStatuses.length >= 2 && putStatuses.every((code) => code === 200), `PUT statuses ${putStatuses}`);
+  await pm.goto(pmProjectUrl);
+  await pm.locator("table.grid tbody tr").first().waitFor();
+  assert.equal(await pm.locator("table.grid tbody tr").nth(1).locator("td.c-dur").innerText(), "6d");
+  assert.equal(await pm.locator("table.grid tbody tr").nth(2).locator("td.c-dur").innerText(), "7d");
+
+  // 3. Undo removes the new task from the selection; outdent then has nothing to act on.
+  await pm.getByRole("button", { name: "New task" }).click();
+  await pm.keyboard.press("Control+z");
+  assert.equal(await pm.getByRole("button", { name: "Outdent" }).isEnabled(), false);
+
+  // 4. Leaving a project right after an edit still saves the edit.
+  await editDuration(3, "2d");
+  await pm.locator("button[title='Back to projects']").click();
+  await pm.waitForURL(`${BASE}/`);
+  await pm.waitForTimeout(1500);
+  await pm.goto(pmProjectUrl);
+  await pm.locator("table.grid tbody tr").first().waitFor();
+  assert.equal(await pm.locator("table.grid tbody tr").nth(3).locator("td.c-dur").innerText(), "2d");
+
+  // 5. A server error at startup is retried instead of signing the user out.
+  let failures = 0;
+  await pm.route("**/api/me", async (route) => {
+    if (failures < 2) {
+      failures++;
+      await route.fulfill({ status: 502, body: "Bad Gateway" });
+    } else await route.continue();
+  });
+  await pm.reload();
+  await pm.locator("table.grid tbody tr").first().waitFor({ timeout: 15000 });
+  assert.equal(failures, 2);
+  assert.ok(!pm.url().includes("/login"));
+  await pm.unroute("**/api/me");
+
+  // 6. Someone with an existing account who signs in from an invitation comes back to it and joins.
+  const existing = await newPage();
+  await signUp(existing, `existing-${uid}@example.com`, "Other Org");
+  await existing.locator(".user-button").click();
+  await existing.getByRole("menuitem", { name: "Sign out" }).click();
+  await existing.waitForURL(`${BASE}/login`);
+  await pm.getByRole("button", { name: "Share & permissions" }).click();
+  await pm.locator(".invite-form input[type=email]").fill(`existing-${uid}@example.com`);
+  await pm.locator(".invite-form select").first().selectOption("guest");
+  await pm.locator(".invite-form select").nth(1).selectOption("editor");
+  await pm.locator(".invite-form button[type=submit]").click();
+  const existingLink = await pm.locator(".invite-link code").innerText();
+  await existing.goto(existingLink);
+  await existing.locator(".auth-card a", { hasText: "Sign in" }).click();
+  await existing.getByLabel("E-mail").fill(`existing-${uid}@example.com`);
+  await existing.getByLabel("Password").fill("secret-pass-9");
+  await existing.getByRole("button", { name: "Sign in" }).click();
+  await existing.waitForURL(/\/invite\//);
+  await existing.getByRole("button", { name: "Accept invitation" }).click();
+  await existing.waitForURL(/\/projects\//);
+  await existing.locator("table.grid tbody tr").first().waitFor();
+  assert.equal(await existing.getByRole("button", { name: "New task" }).count(), 1); // editor rights
   await browser.close();
   assert.deepEqual(errors, []);
   console.log("e2e smoke: OK");

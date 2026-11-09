@@ -7,6 +7,8 @@ export const RTL_LANGS: ReadonlySet<Lang> = new Set<Lang>(["he"]);
 
 const strings = {
   he: {
+    serverUnavailable: "השרת לא זמין כרגע. ייתכן שהוא מתעורר, נסה שוב בעוד רגע.",
+    retry: "נסה שוב",
     appTitle: "Gantt Planner",
     newProject: "פרויקט חדש",
     importXml: "ייבוא XML",
@@ -141,6 +143,8 @@ const strings = {
     hours: "שע'",
   },
   en: {
+    serverUnavailable: "The server is not reachable right now. It may be waking up; try again in a moment.",
+    retry: "Try again",
     appTitle: "Gantt Planner",
     newProject: "New project",
     importXml: "Import XML",
@@ -275,6 +279,8 @@ const strings = {
     hours: "h",
   },
   de: {
+    serverUnavailable: "Der Server ist gerade nicht erreichbar. Er startet möglicherweise noch; bitte gleich erneut versuchen.",
+    retry: "Erneut versuchen",
     appTitle: "Gantt Planner",
     newProject: "Neues Projekt",
     importXml: "XML importieren",
@@ -408,6 +414,8 @@ const strings = {
     hours: "Std.",
   },
   it: {
+    serverUnavailable: "Il server non è raggiungibile in questo momento. Potrebbe essere in avvio; riprova tra poco.",
+    retry: "Riprova",
     appTitle: "Gantt Planner",
     newProject: "Nuovo progetto",
     importXml: "Importa XML",

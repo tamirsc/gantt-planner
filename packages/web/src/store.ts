@@ -54,6 +54,8 @@ interface Prefs {
 export interface AppState {
   /** undefined = not checked yet, null = signed out */
   session: Me | null | undefined;
+  /** Set when the server could not be reached at startup (after retries); the app shows a retry screen. */
+  bootError: string | null;
   currentOrgId: string | null;
 
   /** Loaded project (server-backed). */
@@ -140,9 +142,21 @@ export function newId(): string {
 export const useStore = create<AppState>((set, get) => {
   /** Apply a project change: validate by scheduling, push history, persist. Returns false on scheduling error. */
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Saves run one at a time through this chain, each with the version returned by the
+   * previous one. Without it, an edit made while a save was in flight produced a second
+   * request with the old version, which the server rejected as a conflict.
+   */
+  let saveChain: Promise<void> = Promise.resolve();
+  const latestVersion = new Map<string, number>();
+  /** Identifies the current openProject call so a late response for an earlier project is ignored. */
+  let openToken = 0;
   const scheduleSave = () => {
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => void get().saveNow(), 800);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      void get().saveNow();
+    }, 800);
   };
 
   const commit = (next: ProjectInput, opts: { name?: string; history?: boolean; remote?: boolean } = {}): boolean => {
@@ -165,7 +179,13 @@ export const useStore = create<AppState>((set, get) => {
       throw e;
     }
     const name = opts.name ?? projectName;
+    // Undo, redo and reloads can remove tasks; never keep a selection that points at nothing.
+    const ids = new Set(next.tasks.map((x) => x.id));
+    const { selected, collapsed } = get();
+    const keptSelection = selected.filter((id) => ids.has(id));
     set({
+      selected: keptSelection.length === selected.length ? selected : keptSelection,
+      collapsed: [...collapsed].every((id) => ids.has(id)) ? collapsed : new Set([...collapsed].filter((id) => ids.has(id))),
       project: next,
       projectName: name,
       result,
@@ -205,8 +225,16 @@ export const useStore = create<AppState>((set, get) => {
   };
 
   const applyDetail = (p: ProjectDetail) => {
+    latestVersion.set(p.id, p.version);
     set({ projectId: p.id, version: p.version, permissions: p.permissions, projectName: p.name });
     commit(p.data, { name: p.name, remote: true });
+  };
+
+  const applySession = (me: Me) => {
+    const current = get().currentOrgId;
+    const orgId = current && me.orgs.some((o) => o.id === current) ? current : (me.orgs[0]?.id ?? null);
+    set({ session: me, currentOrgId: orgId, bootError: null });
+    if (isLang(me.user.locale) && me.user.locale !== get().prefs.lang) get().setPrefs({ lang: me.user.locale });
   };
 
   const empty: ProjectInput = { start: Date.now(), tasks: [], dependencies: [] };
@@ -214,6 +242,7 @@ export const useStore = create<AppState>((set, get) => {
 
   return {
     session: undefined,
+    bootError: null,
     currentOrgId: null,
     projectId: null,
     version: 0,
@@ -233,25 +262,42 @@ export const useStore = create<AppState>((set, get) => {
     toast: null,
 
     async bootstrap() {
-      await get().refreshSession();
+      // Only "not authenticated" means signed out. Any other failure (network, a 502 while the
+      // server wakes up) is retried for about half a minute, then shown as an error with a retry button.
+      set({ bootError: null });
+      const delays = [1000, 2000, 4000, 8000, 15000];
+      for (let attempt = 0; ; attempt++) {
+        try {
+          applySession(await api.me());
+          return;
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 401) {
+            set({ session: null, currentOrgId: null });
+            return;
+          }
+          const delay = delays[attempt];
+          if (delay === undefined) {
+            set({ bootError: (e as Error).message });
+            return;
+          }
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
     },
 
     async refreshSession() {
       try {
-        const me = await api.me();
-        const current = get().currentOrgId;
-        const orgId = current && me.orgs.some((o) => o.id === current) ? current : (me.orgs[0]?.id ?? null);
-        set({ session: me, currentOrgId: orgId });
-        if (isLang(me.user.locale) && me.user.locale !== get().prefs.lang) get().setPrefs({ lang: me.user.locale });
+        applySession(await api.me());
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) set({ session: null, currentOrgId: null });
-        else set({ session: null, toast: (e as Error).message });
+        else set({ toast: (e as Error).message }); // keep the current session on transient errors
       }
     },
 
     async signOut() {
+      get().closeProject(); // flushes unsaved edits
+      await saveChain;
       await api.logout();
-      get().closeProject();
       set({ session: null, currentOrgId: null });
     },
 
@@ -260,38 +306,68 @@ export const useStore = create<AppState>((set, get) => {
     },
 
     async openProject(id) {
-      set({ projectId: id, loadError: null, saveState: "saved", selected: [], collapsed: new Set(), past: [], future: [] });
+      const token = ++openToken;
+      // projectId stays null until the data arrives, so the screen shows "Loading…" instead of an
+      // empty read-only project.
+      set({ projectId: null, loadError: null, saveState: "saved", selected: [], collapsed: new Set(), past: [], future: [] });
       try {
         const p = await api.getProject(id);
+        if (token !== openToken) return; // the user has moved on to another project
         applyDetail(p);
         void get().refreshMembers();
       } catch (e) {
+        if (token !== openToken) return;
         set({ loadError: (e as Error).message, projectId: null });
       }
     },
 
     closeProject() {
+      openToken++;
       if (saveTimer) clearTimeout(saveTimer);
       saveTimer = null;
-      set({ projectId: null, project: empty, projectName: "", result: schedule(empty), version: 0, permissions: noPermissions, members: [], past: [], future: [], selected: [], saveState: "saved" });
+      // Edits made less than a moment ago are still unsaved: queue them before forgetting the project.
+      if (get().saveState === "dirty" || get().saveState === "error") void get().saveNow();
+      set({ projectId: null, project: empty, projectName: "", result: schedule(empty), version: 0, permissions: noPermissions, members: [], past: [], future: [], selected: [], saveState: "saved", loadError: null });
     },
 
-    async saveNow() {
-      const { projectId, project, projectName, version, saveState } = get();
-      if (!projectId || saveState === "saved" || saveState === "saving") return;
+    saveNow() {
+      const { projectId, project, projectName, saveState } = get();
+      // "conflict" means the server's copy was just reloaded: nothing of ours to save until the next edit.
+      if (!projectId || saveState === "saved" || saveState === "saving" || saveState === "conflict") return saveChain;
+      // Snapshot now; the request runs after any save already in flight, with the newest version.
+      const data = project;
+      const name = projectName || "Project";
       set({ saveState: "saving" });
-      try {
-        const r = await api.saveProject(projectId, { data: project, name: projectName || "Project", version });
-        set({ version: r.version, saveState: get().saveState === "saving" ? "saved" : get().saveState });
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 409) {
-          const p = await api.getProject(projectId);
-          applyDetail(p);
-          set({ saveState: "conflict", past: [], future: [] });
-        } else {
-          set({ saveState: "error", toast: (e as Error).message });
+      saveChain = saveChain.then(async () => {
+        const stillOpen = () => get().projectId === projectId;
+        try {
+          const version = latestVersion.get(projectId);
+          if (version === undefined) throw new Error("Project version unknown");
+          const r = await api.saveProject(projectId, { data, name, version });
+          latestVersion.set(projectId, r.version);
+          if (!stillOpen()) return;
+          const unchanged = get().project === data && (get().projectName || "Project") === name;
+          if (unchanged) {
+            set({ version: r.version, saveState: "saved" });
+          } else {
+            // Edits made during the request: a later save is either queued ("saving") or about to be
+            // scheduled ("dirty"); leave its status alone and make sure it happens.
+            set({ version: r.version });
+            if (get().saveState === "dirty" && !saveTimer) scheduleSave();
+          }
+        } catch (e) {
+          if (!stillOpen()) return;
+          if (e instanceof ApiError && e.status === 409) {
+            // Saves are serialized, so a conflict now really means another person saved.
+            const p = await api.getProject(projectId);
+            applyDetail(p);
+            set({ saveState: "conflict", past: [], future: [] });
+          } else {
+            set({ saveState: "error", toast: (e as Error).message });
+          }
         }
-      }
+      });
+      return saveChain;
     },
 
     setProjectName(name) {
@@ -363,7 +439,8 @@ export const useStore = create<AppState>((set, get) => {
       const order = outlineOrder(p);
       let tasks = p.tasks;
       for (const id of ids) {
-        const t = tasks.find((x) => x.id === id)!;
+        const t = tasks.find((x) => x.id === id);
+        if (!t) continue;
         // New parent = previous sibling (same parent) in outline order.
         const idx = order.indexOf(id);
         let prevSibling: TaskInput | undefined;
@@ -386,8 +463,8 @@ export const useStore = create<AppState>((set, get) => {
       const p = get().project;
       let tasks = p.tasks;
       for (const id of ids) {
-        const t = tasks.find((x) => x.id === id)!;
-        if (!t.parentId) continue;
+        const t = tasks.find((x) => x.id === id);
+        if (!t || !t.parentId) continue;
         const parent = tasks.find((x) => x.id === t.parentId)!;
         // Following siblings become children of the outdented task (MS Project behaviour).
         const siblings = tasks.filter((x) => (x.parentId ?? null) === (parent.id ?? null));

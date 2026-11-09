@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { RTL_LANGS, t } from "./i18n";
-import { navigate, pathFor, useRoute } from "./router";
+import { navigate, nextPath, pathFor, useRoute } from "./router";
 import { AuthScreen } from "./screens/AuthScreen";
 import { InviteScreen } from "./screens/InviteScreen";
 import { MembersScreen } from "./screens/MembersScreen";
@@ -22,11 +22,14 @@ export function App() {
     void s.bootstrap();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Depends on the message only: other store updates (autosave, dragging) must not restart the timer.
+  const toast = s.toast;
+  const setToast = s.setToast;
   useEffect(() => {
-    if (!s.toast) return;
-    const h = setTimeout(() => s.setToast(null), 6000);
+    if (!toast) return;
+    const h = setTimeout(() => setToast(null), 6000);
     return () => clearTimeout(h);
-  }, [s.toast, s]);
+  }, [toast, setToast]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -58,11 +61,23 @@ export function App() {
     if (s.session === undefined) return;
     const publicRoute = route.name === "login" || route.name === "signup" || route.name === "invite";
     if (!s.session && !publicRoute) navigate(pathFor.login(), true);
-    if (s.session && (route.name === "login" || route.name === "signup")) navigate(pathFor.projects(), true);
+    if (s.session && (route.name === "login" || route.name === "signup")) navigate(nextPath() ?? pathFor.projects(), true);
   }, [s.session, route]);
 
   let screen: React.ReactNode;
-  if (s.session === undefined) screen = <div className="auth-wrap">{t(lang, "loading")}</div>;
+  if (s.bootError)
+    screen = (
+      <div className="auth-wrap">
+        <div className="auth-card">
+          <p>{t(lang, "serverUnavailable")}</p>
+          <p className="muted" dir="ltr">{s.bootError}</p>
+          <button className="primary" onClick={() => void s.bootstrap()}>
+            {t(lang, "retry")}
+          </button>
+        </div>
+      </div>
+    );
+  else if (s.session === undefined) screen = <div className="auth-wrap">{t(lang, "loading")}</div>;
   else if (route.name === "invite") screen = <InviteScreen token={route.token} />;
   else if (!s.session) screen = <AuthScreen mode={route.name === "signup" ? "signup" : "login"} />;
   else if (route.name === "project") screen = <ProjectScreen id={route.id} />;
